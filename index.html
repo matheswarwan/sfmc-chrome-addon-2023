@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <!-- <meta name="viewport" content="width=100%, initial-scale=1.0" /> -->
+    <link
+      rel="stylesheet"
+      href="./assets/styles/salesforce-lightning-design-system.css"
+    />
+    <link rel="stylesheet" href="./css/codemirror.css">
+    <link rel="stylesheet" href="./css/codemirror-twilight.css">
+    <script src="./js/jquery-3.6.0.min.js"></script>
+    <script src="./js/codemirror.js"></script>
+    <script src="./js/codemirror-sql.js"></script>
+    <script src="./js/codemirror-javascript.js"></script>
+    <title>Revert Changes</title>
+    <style>
+      *.x {
+        border: 1px solid;
+      }
+      html,
+      body {
+        height: 100% !important;
+      }
+
+      .full-height {
+        height: 100% !important;
+      }
+      .ck-left-split-view-toggle-btn {
+        height: 100% !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="slds-grid full-height">
+      <div
+        class="slds-col full-height"
+        style="max-width: 320px; min-height: 300px; height: 100% !important"
+      >
+        <!-- Reference: https://www.lightningdesignsystem.com/components/vertical-navigation/ -->
+        <!-- Veritcal navigation starts -->
+        <!-- <div class="ck-left-navigation-bar" >
+          <nav class="slds-nav-vertical" aria-label="Sub page">
+            <div class="slds-form-element slds-p-horizontal_large">
+              <label
+                class="slds-form-element__label slds-assistive-text"
+                for="input-id-01"
+                >Filter navigation items</label
+              >
+              <div
+                class="slds-form-element__control slds-input-has-icon slds-input-has-icon_left"
+              >
+                <span class="slds-icon_container slds-icon-utility-search">
+                  <svg
+                    class="slds-icon slds-input__icon slds-input__icon_right slds-icon-text-default"
+                    aria-hidden="true"
+                  >
+                    <use
+                      xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#search"
+                    ></use>
+                  </svg>
+                </span>
+                <input
+                  type="search"
+                  id="input-id-01"
+                  placeholder="Quick Find"
+                  class="slds-input"
+                />
+              </div>
+            </div>
+            <div class="slds-nav-vertical__section">
+              <h2 id="entity-header" class="slds-nav-vertical__title">
+                Reports
+              </h2>
+              <ul aria-describedby="entity-header">
+                <li class="slds-nav-vertical__item slds-is-active">
+                  <a
+                    href="#"
+                    class="slds-nav-vertical__action"
+                    aria-current="true"
+                    >Recent</a
+                  >
+                </li>
+                <li class="slds-nav-vertical__item">
+                  <a href="#" class="slds-nav-vertical__action"
+                    >Created by Me</a
+                  >
+                </li>
+                <li class="slds-nav-vertical__item">
+                  <a href="#" class="slds-nav-vertical__action"
+                    >Private Reports</a
+                  >
+                </li>
+                <li class="slds-nav-vertical__item">
+                  <a href="#" class="slds-nav-vertical__action"
+                    >Public Reports</a
+                  >
+                </li>
+                <li class="slds-nav-vertical__item">
+                  <a href="#" class="slds-nav-vertical__action">All Reports</a>
+                </li>
+              </ul>
+            </div>
+            <div class="slds-nav-vertical__section">
+              <h2 id="folder-header" class="slds-nav-vertical__title">
+                Folders
+              </h2>
+              <ul aria-describedby="folder-header">
+                <li class="slds-nav-vertical__item">
+                  <a href="#" class="slds-nav-vertical__action"
+                    >Created by Me</a
+                  >
+                </li>
+                <li class="slds-nav-vertical__item">
+                  <a href="#" class="slds-nav-vertical__action"
+                    >Shared with Me</a
+                  >
+                </li>
+              </ul>
+            </div>
+          </nav>
+        </div> -->
+        <!-- Veritcal navigation ends -->
+        <!-- Reference: https://www.lightningdesignsystem.com/components/split-view/-->
+        
+        <!-- Split View starts -->
+        <div
+          class="ck-left-split-view slds-split-view_container slds-is-open full-height"
+        >
+          <button
+            class="ck-left-split-view-toggle-btn slds-button slds-button_icon slds-button_icon slds-split-view__toggle-button slds-is-open"
+            aria-controls="split-view-id"
+            aria-expanded="true"
+            title="Close Split View"
+          >
+            <svg
+              class="slds-button__icon slds-button__icon_x-small"
+              aria-hidden="true"
+            >
+              <use
+                xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#left"
+              ></use>
+            </svg>
+            <span class="slds-assistive-text">Close Split View</span>
+          </button>
+          <article
+            aria-hidden="false"
+            id="split-view-id"
+            class="slds-split-view slds-grid slds-grid_vertical slds-grow"
+          >
+            <header class="slds-split-view__header">
+              <div
+                class="slds-grid slds-grid_vertical-align-center slds-m-bottom_xx-small"
+              >
+                <!-- Dropdown menu - start -->
+                <div
+                  class="ck-left-split-view-buid-dropdown slds-dropdown-trigger slds-dropdown-trigger_click slds-is-closed"
+                >
+                  <button
+                    class="ck-left-split-view-buid-dropdown-btn slds-button slds-button_icon slds-button_icon-border-filled"
+                    aria-haspopup="true"
+                    aria-expanded="true"
+                    title="Show More"
+                  > 
+                  <span
+                    class="slds-icon_container slds-icon-utility-success"
+                    title="success"
+                    >
+              </span>
+                    <svg class="slds-button__icon" aria-hidden="true">
+                      <use
+                        xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#down"
+                      ></use>
+                    </svg>
+                    <span class="slds-assistive-text">Show More</span>
+                  </button>
+                  <span class="ck-buid-title"></span>
+
+                  <div class="slds-dropdown slds-dropdown_left">
+                    <ul class="ck-left-split-view-buid-dropdown-ul slds-dropdown__list" role="menu">
+                      <!-- <li class="slds-dropdown__item" role="presentation">
+                        <a
+                          class="slds-has-success"
+                          href="#"
+                          role="menuitem"
+                          tabindex="-1"
+                        >
+                          <span class="slds-truncate" title="Success Item">
+                            <span class="slds-m-horizontal_xx-small">
+                              <span
+                                class="slds-icon_container slds-icon-utility-success"
+                                title="success"
+                              >
+                                <svg
+                                  class="slds-icon slds-icon_x-small"
+                                  aria-hidden="true"
+                                >
+                                  <use
+                                    xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#success"
+                                  ></use>
+                                </svg>
+                                <span class="slds-assistive-text">success</span>
+                              </span>
+                            </span>
+                            <span>Success Item</span>
+                          </span>
+                        </a>
+                      </li>
+                      <li class="slds-dropdown__item" role="presentation">
+                        <a href="#" role="menuitem" tabindex="-1">
+                          <span class="slds-truncate" title="Overflow Tab Item">
+                            <svg
+                              class="slds-icon slds-icon_x-small slds-icon-text-default slds-m-right_x-small"
+                              aria-hidden="true"
+                            >
+                              <use
+                                xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#user"
+                              ></use>
+                            </svg>
+                            <span>Overflow Tab Item</span>
+                          </span>
+                        </a>
+                      </li> -->
+                    </ul>
+                  </div>
+                </div>
+                <!-- Dropdown menu - end -->
+                <!-- <div class="slds-has-flexi-truncate">
+                  <div class="slds-media slds-media_center">
+                    <div class="slds-media__figure">
+                      <div class="slds-icon_container slds-icon-standard-lead">
+                        <svg class="slds-icon" aria-hidden="true">
+                          <use
+                            xlink:href="/assets/icons/standard-sprite/svg/symbols.svg#lead"
+                          ></use>
+                        </svg>
+                        <span class="slds-assistive-text">Leads</span>
+                      </div>
+                    </div>
+                    <div class="slds-media__body">
+                      <h1
+                        class="slds-text-heading_small slds-text-color_default slds-p-right_x-small"
+                      >
+                         <button
+                          class="ck-left-split-view-buid-dropdown slds-button slds-button_reset slds-type-focus slds-truncate"
+                          aria-haspopup="true"
+                          title=""
+                        ><span
+                            class="slds-grid slds-has-flexi-truncate slds-grid_vertical-align-center"
+                          >
+                            <span
+                              class="ck-buid-title slds-truncate"
+                              title="Business Unit ID"
+                            ></span>
+                            <svg
+                              class="slds-button__icon slds-button__icon_right slds-no-flex"
+                              aria-hidden="true"
+                            >
+                              <use
+                                xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#down"
+                              ></use>
+                            </svg>
+                          </span>
+                        </button> 
+                      </h1>
+                    </div>
+                  </div>
+                </div> -->
+                <!-- <div class="slds-no-flex slds-grid">
+                  <button
+                    class="slds-button slds-button_icon slds-button_icon-border-filled"
+                    aria-haspopup="true"
+                    title="More Actions"
+                  >
+                    <svg class="slds-button__icon" aria-hidden="true">
+                      <use
+                        xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#down"
+                      ></use>
+                    </svg>
+                    <span class="slds-assistive-text">More Actions</span>
+                  </button>
+                </div> -->
+              </div>
+              <div class="slds-grid slds-grid_vertical-align-center">
+                <p
+                  class="ck-title-items-count slds-text-body_small slds-text-color_weak"
+                ></p>
+                <div class="slds-no-flex slds-grid slds-col_bump-left">
+                  <!-- <div class="slds-button-group">
+                    <button
+                      class="slds-button slds-button_icon slds-button_icon slds-button_icon-container-more"
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                      title="Display As Split View"
+                    >
+                      <svg class="slds-button__icon" aria-hidden="true">
+                        <use
+                          xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#side_list"
+                        ></use>
+                      </svg>
+                      <svg
+                        class="slds-button__icon slds-button__icon_x-small"
+                        aria-hidden="true"
+                      >
+                        <use
+                          xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#down"
+                        ></use>
+                      </svg>
+                      <span class="slds-assistive-text"
+                        >Display As Split View</span
+                      >
+                    </button>
+                  </div> -->
+                  <div class="slds-button-group">
+                    <button
+                      class="ck-items-refresh-btn slds-button slds-button_icon slds-button_icon slds-button_icon-container"
+                      title="Refresh List"
+                    >
+                      <svg class="slds-button__icon" aria-hidden="true">
+                        <use
+                          xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#refresh"
+                        ></use>
+                      </svg>
+                      <span class="slds-assistive-text">Refresh List</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </header>
+            <div class="ck-left-menu slds-grid slds-grid_vertical">
+              <div class="slds-split-view__list-header slds-grid">
+                <span class="slds-assistive-text">Sorted by:</span>
+                <span>
+                  List of saved items
+                  <svg
+                    class="slds-icon slds-icon_xx-small slds-icon-text-default slds-align-top"
+                    aria-hidden="true"
+                  >
+                    <!-- <use
+                      xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#arrowdown"
+                    ></use> -->
+                  </svg>
+                </span>
+                <span class="slds-assistive-text">- Descending</span>
+              </div>
+            </div>
+          </article>
+        </div>
+        <!-- Split View ends -->
+      </div>
+      <div class="slds-col">
+        <!-- Reference: https://www.lightningdesignsystem.com/components/cards/ -->
+        <!-- Email Card start -->
+        <article class="ck-email-preview-screen slds-card slds-hide">
+          <div class="slds-grid slds-einstein-header slds-card__header">
+            <header
+              class="slds-media slds-media_center slds-has-flexi-truncate"
+            >
+              <div
+                class="slds-grid slds-grid_vertical-align-center slds-size_3-of-4 slds-medium-size_2-of-3"
+              >
+                <div class="slds-media__figure">
+                  <span
+                    class="slds-icon_container slds-icon-utility-salesforce1"
+                  >
+                    <svg
+                      class="slds-icon slds-icon_small slds-icon-text-default"
+                      aria-hidden="true"
+                    >
+                      <use
+                        xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#salesforce1"
+                      ></use>
+                    </svg>
+                  </span>
+                </div>
+                <div class="slds-media__body">
+                  <h2 class="slds-truncate" title="Einstein (10+)">
+                    <a
+                      href="#"
+                      class="slds-card__header-link"
+                      title="Einstein (10+)"
+                    >
+                      <span class="ck-email-name slds-text-heading_small"
+                        >Einstein (10+)</span
+                      >
+                    </a>
+                  </h2>
+                </div>
+              </div>
+              <div
+                class="slds-einstein-header__figure slds-size_1-of-4 slds-medium-size_1-of-3"
+              ></div>
+            </header>
+            <div class="slds-einstein-header__actions">
+              <div class="slds-button-group" role="group">
+                <!-- <button
+                  class="slds-button slds-button_icon slds-button_icon-border-filled"
+                  title="Email"
+                  aria-pressed="false"
+                >
+                  <svg class="slds-button__icon" aria-hidden="true">
+                    <use
+                      xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#email"
+                    ></use>
+                  </svg>
+                  <span class="slds-assistive-text">Email</span>
+                </button> -->
+                <section
+                  aria-label="Dialog title"
+                  aria-describedby="popover-body-id"
+                  class="ck-revert-btn-help-popup slds-popover slds-nubbin_right-top slds-hide"
+                  role="dialog"
+                >
+                  <button
+                    class="slds-button slds-button_icon slds-button_icon slds-button_icon-small slds-float_right slds-popover__close"
+                    title="Close dialog"
+                  >
+                    <svg class="slds-button__icon" aria-hidden="true">
+                      <use
+                        xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#close"
+                      ></use>
+                    </svg>
+                    <span
+                      class="ck-revert-btn-help-popup-close-btn slds-assistive-text"
+                      >Close dialog</span
+                    >
+                  </button>
+                  <div id="popover-body-id" class="slds-popover__body">
+                    <p class="ck-revert-btn-help-popup-text">
+                      Clicking on this reverts the email to previous version
+                    </p>
+                  </div>
+                </section>
+                <button
+                  class="ck-revert-btn slds-button slds-button_icon slds-button_icon-border-filled"
+                  assetId=""
+                  assetName=""
+                  memberId=""
+                  timeStamp=""
+                  title="Clicking on this reverts the email to previous version"
+                  aria-pressed="false"
+                >
+                  <svg class="slds-button__icon" aria-hidden="true">
+                    <use
+                      xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#replace"
+                    ></use>
+                  </svg>
+                  <span class="slds-assistive-text">Revert</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div
+            id="ck-email-preview-body"
+            class="ck-email-preview-body slds-card__body slds-card__body_inner"
+          ></div>
+          <footer class="slds-card__footer">
+            <a class="ck-preview-botton-action-btn slds-card__footer-action" href="#"
+              >Copy SQL
+              <span class="ck-preview-botton-action-text slds-assistive-text">Action: Copy</span>
+            </a>
+          </footer>
+        </article>
+        <!-- Email Card end -->
+      </div>
+    </div>
+    <script src="./index.js"></script>
+  </body>
+</html>

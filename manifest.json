@@ -1,0 +1,94 @@
+{
+  "name": "SFMC Revert changes",
+  "description": "All your previous changes saved!",
+  "version": "0.1",
+  "manifest_version": 3,
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.marketingcloudapps.com/*",
+        "https://*.exacttarget.com/*"
+      ],
+      "js": [
+        "content-script.js",
+        "js/jquery.min.js",
+        "js/jquery-ui.js",
+        "js/axios.min.js",
+        "js/codemirror.js",
+        "js/codemirror-javascript.js",
+        "js/codemirror-sql.js",
+        "js/ace.js",
+        "js/content.js",
+        "js/popup.js"
+      ],
+      "css": [
+        "css/style.css",
+        "css/codemirror.css",
+        "css/jquery-ui.css",
+        "css/codemirror-twilight.css"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "host_permissions": [
+    "https://*.marketingcloudapps.com/*",
+    "https://*.exacttarget.com/",
+    "https://querystudio.herokuapp.com/*"
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "webRequest",
+    "tabs",
+    "unlimitedStorage",
+    "downloads",
+    "webNavigation",
+    "cookies",
+    "scripting"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "SFMC Revert Changes..",
+    "default_icon": {
+      "16": "/images/get_started16.png",
+      "32": "/images/get_started32.png",
+      "48": "/images/get_started48.png",
+      "128": "/images/get_started128.png"
+    }
+  },
+  "icons": {
+    "16": "/images/get_started16.png",
+    "32": "/images/get_started32.png",
+    "48": "/images/get_started48.png",
+    "128": "/images/get_started128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "images/get_started48.png",
+        "css/style.css",
+        "css/jquery-ui.css",
+        "js/jquery.min.js",
+        "js/jquery-ui.js",
+        "js/jquery.ui-contextmenu.min.js",
+        "js/axios.min.js",
+        "js/popup.js",
+        "js/codemirror.js",
+        "js/codemirror-javascript.js",
+        "js/codemirror-sql.js",
+        "js/ace.js",
+        "css/salesforce-lightning-design-system.min.css",
+        "css/codemirror.css",
+        "css/codemirror-twilight.css",
+        "images/symbols.svg"
+      ],
+      "matches": [
+        "<all_urls>"
+      ],
+      "use_dynamic_url": true
+    }
+  ]
+}
