@@ -1,7 +1,8 @@
 console.log('Background js loaded..')
 
 //Global
-let memberId = '515010937'; //TODO: Change this
+// let memberId = '515010937'; //TODO: Change this
+let memberId = ''; //TODO: Change this
 
 
 /* Read X-CSRF-TOKEN on Request Save */ 
@@ -45,7 +46,7 @@ chrome.webRequest.onBeforeRequest.addListener(
     //Email/ cloudpage saves
     if(details.method == 'PUT') { 
       //console.log('PUT method')
-      console.log(details)
+      // console.log(details)
       var assetType = "Email";
       var url = details.url;
       assetId = url.substring(
@@ -80,11 +81,11 @@ chrome.webRequest.onBeforeRequest.addListener(
       let isDuplicateEmail = await isDuplicateRequestEmailRequest(memberId, assetData['compiledHtml']);
       if(isDuplicateEmail) 
       {
-        console.error('Duplicate save request; not processed')
+        console.info('Duplicate save request; not saved')
       } 
       else 
       {
-        console.info('Save rquest processed')
+        console.info('Save request processed')
         saveToLocal(memberId, assetType, assetId, assetData)
       }
       
@@ -94,10 +95,10 @@ chrome.webRequest.onBeforeRequest.addListener(
       var type = "query";
       //From url, make a GET call and in response, get queryText
       var getEndpoint = details.url; 
-      console.log(getEndpoint)
+      // console.log(getEndpoint)
       /* Get - Start */
       var csrfToken = ""//items['X-CSRF-Token'] ; //= getcsrfToken();
-      console.log('csrfToken is ' + csrfToken);
+      // console.log('csrfToken is ' + csrfToken);
       requestOptions = {
         method: "GET",
         headers: {
@@ -109,8 +110,8 @@ chrome.webRequest.onBeforeRequest.addListener(
       
       fetch(getEndpoint, requestOptions)  
         .then(function(response) {                      // first then()
-          console.log('***THEN IN FETCH GET REQUEST.***')  
-            console.log(response);  
+          // console.log('***THEN IN FETCH GET REQUEST.***')  
+            // console.log(response);  
             response.json().then(
               function(body) {
                 
@@ -136,19 +137,19 @@ chrome.webRequest.onBeforeRequest.addListener(
       /* Get - End */       
     }
     else if(details.method == 'POST' && details.url.indexOf('querystudio.herokuapp.com/query/create') > -1 ) {
-      console.log('Query studio post request  -- check for header ' , details);
+      // console.log('Query studio post request  -- check for header ' , details);
       //debugger;
       var assetData = {};
       var url = details.url;
       var statusCode = details.statusCode;
       var timeStamp = details.timeStamp;
-      console.log(url,statusCode,timeStamp);
+      // console.log(url,statusCode,timeStamp);
       var bytesArray = new Uint8Array(details.requestBody.raw[0].bytes); 
       var stringArray = utf8ArrayToString(bytesArray);
       postBody = stringArray;
 
       postJson = JSON.parse(postBody);
-      console.log(postJson);
+      // console.log(postJson);
       var querytext = postJson.querytext; 
 
       /*Save to storage */
@@ -200,31 +201,31 @@ chrome.webRequest.onBeforeRequest.addListener(
 //Global Functions 
 
 function saveToLocal(memberId, assetType, assetId,assetData) {
-  console.log('SaveToLocal - Asset id - ' + assetId + ' - memberId - ' + memberId)
-  console.log(assetData)
+  // console.log('SaveToLocal - Asset id - ' + assetId + ' - memberId - ' + memberId)
+  // console.log(assetData)
   /* Save to storage */
   if(assetId == null) { 
     //typeof assetId === 'undefined'
-    console.log("No saves needed.")
+    // console.log("No saves needed.")
   }else {
-    console.log(memberId);
+    // console.log(memberId);
     chrome.storage.local.get(memberId, function(items){
-      console.log(items);
+      // console.log(items);
       if(Object.keys(items).length > 0) { 
         if(assetType == 'Email' && Object.keys(items[memberId]['email']).length > 0) {
           items[memberId]['email'].push(assetData);
-          console.log('Emali Items already found. updaed item ' , items , ' with asset data ' , assetData)
+          // console.log('Emali Items already found. updaed item ' , items , ' with asset data ' , assetData)
           chrome.storage.local.set(items, function() {
-            console.log('New item stored');
-            console.log(items)
+            // console.log('New item stored');
+            // console.log(items)
           });
         } else if(assetType == 'query_studio') {
           //Query studio key exists - so store there.
           items[memberId]['query_studio'].push(assetData);
-          console.log('Query studio Items already found. updaed item ' , items , ' with asset data ' , assetData)
+          // console.log('Query studio Items already found. updaed item ' , items , ' with asset data ' , assetData)
           chrome.storage.local.set(items, function() {
-            console.log('New item stored');
-            console.log(items)
+            // console.log('New item stored');
+            // console.log(items)
           });
 
         }
@@ -242,8 +243,8 @@ function saveToLocal(memberId, assetType, assetId,assetData) {
 
           newBUItem[memberId]['email'].push(assetData);
           chrome.storage.local.set(newBUItem, function() {
-            console.log('New item stored')
-            console.log(newBUItem)
+            // console.log('New item stored')
+            // console.log(newBUItem)
           });
         }
         else if (assetType == 'query_studio') 
@@ -259,8 +260,8 @@ function saveToLocal(memberId, assetType, assetId,assetData) {
 
           newBUItem[memberId]['query_studio'].push(assetData);
           chrome.storage.local.set(newBUItem, function() {
-            console.log('New query_studio item stored')
-            console.log(newBUItem)
+            // console.log('New query_studio item stored')
+            // console.log(newBUItem)
           });
           // chrome.storage.local.get(memberId, function(qsItems) { 
           //   console.log('QS items fetched ' , qsItems)

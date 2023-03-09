@@ -7,24 +7,16 @@
     {
       "matches": [
         "https://*.marketingcloudapps.com/*",
-        "https://*.exacttarget.com/*"
+        "https://*.exacttarget.com/*",
+        "https://querystudio.herokuapp.com/*"
       ],
       "js": [
-        "content-script.js",
-        "js/jquery.min.js",
-        "js/jquery-ui.js",
-        "js/axios.min.js",
         "js/codemirror.js",
         "js/codemirror-javascript.js",
-        "js/codemirror-sql.js",
-        "js/ace.js",
-        "js/content.js",
-        "js/popup.js"
+        "js/codemirror-sql.js"
       ],
       "css": [
-        "css/style.css",
         "css/codemirror.css",
-        "css/jquery-ui.css",
         "css/codemirror-twilight.css"
       ]
     }
@@ -69,18 +61,10 @@
     {
       "resources": [
         "images/get_started48.png",
-        "css/style.css",
-        "css/jquery-ui.css",
-        "js/jquery.min.js",
-        "js/jquery-ui.js",
-        "js/jquery.ui-contextmenu.min.js",
-        "js/axios.min.js",
-        "js/popup.js",
         "js/codemirror.js",
         "js/codemirror-javascript.js",
         "js/codemirror-sql.js",
-        "js/ace.js",
-        "css/salesforce-lightning-design-system.min.css",
+        "css/salesforce-lightning-design-system.css",
         "css/codemirror.css",
         "css/codemirror-twilight.css",
         "images/symbols.svg"

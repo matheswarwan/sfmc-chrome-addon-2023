@@ -24,7 +24,4 @@ function openTab(filename)
   });
 }
 
-openTab('index.html')
-
-
-
+openTab('index.html');

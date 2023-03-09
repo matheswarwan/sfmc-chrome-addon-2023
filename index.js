@@ -1,7 +1,9 @@
+console.log('Addon loaded...')
 let currentBuid = 0;
 let buids;
 let loadUICount = 0;
 const allowedTokenAge = 15;
+// This is just data format; not actual data;
 let data = {
   100015966: {
     email: [
@@ -119,10 +121,10 @@ async function getData() {
 }
 
 async function loadUI(currentBuid) {
-  console.log("Load UI count : ", loadUICount++);
+  // console.log("Load UI count : ", loadUICount++);
 
   data = await getData();
-  console.log('Get Data... ' , data)
+  // console.log('Get Data... ' , data)
   buids = Object.keys(data)
   buids.pop('token');
   currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
@@ -170,7 +172,7 @@ $(".ck-left-split-view-toggle-btn").on("click", () => {
 //Functions
 
 async function setLeftMenuTop(buids, currentBuid) {
-  console.log("Setting left menu - top order");
+  // console.log("Setting left menu - top order");
 
   let liHtml = "";
 
@@ -196,10 +198,12 @@ async function setLeftMenuTop(buids, currentBuid) {
 
   $('.ck-left-split-view-buid-dropdown-ul').html(liHtml);
   //debugger;
-  $('.ck-buid-title').text('  ' + currentBuid + '  ');
+  $('.ck-buid-title').text('  ' 
+    + (currentBuid == undefined ? 'No data saved yet!': currentBuid)
+    + '  ');
   
   $('.ck-left-split-view-buid-dropdown').on('click', function(){
-    console.log('Dropdown click triggered..')
+    // console.log('Dropdown click triggered..')
     $('.ck-left-split-view-buid-dropdown').toggleClass('slds-is-open').toggleClass('slds-is-closed');
   });
 
@@ -217,7 +221,7 @@ async function setLeftMenuTop(buids, currentBuid) {
     //$('.ck-buid-title').text('  ' + currentBuid + '  ');
 
     currentBuid = $(this).attr('buid');
-    console.log('load ui for ' , currentBuid);
+    // console.log('load ui for ' , currentBuid);
     //$('.ck-left-split-view-buid-dropdown').trigger('click');
     loadUI(currentBuid);
   })
@@ -353,7 +357,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
     });
 
     $(".ck-left-sub-menu-item").on('click', function () {
-      console.log("clicked from submenu ", $(this).attr("menutype"));
+      // console.log("clicked from submenu ", $(this).attr("menutype"));
       let assetId = $(this).attr("menutype");
       setAuditHistoryUI(menuItemType, currentBuid, assetId);
     });
@@ -417,7 +421,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      console.log("clicked from submenu ", $(this).attr("timeStamp"));
+      // console.log("clicked from submenu ", $(this).attr("timeStamp"));
       let timeStamp = $(this).attr("timeStamp")
       showQueryStudioPreview(menuItemType, timeStamp) ;
     });
@@ -454,7 +458,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      console.log("clicked from submenu ", $(this).attr("menutype"));
+      // console.log("clicked from submenu ", $(this).attr("menutype"));
     });
   } else if (menuItemType == "Automation Studio") {
     {
@@ -490,14 +494,14 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
       });
 
       $(".ck-left-sub-menu-item").click(function () {
-        console.log("clicked from submenu ", $(this).attr("menutype"));
+        // console.log("clicked from submenu ", $(this).attr("menutype"));
       });
     }
   }
 }
 
 async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
-  console.log(menuItemType, assetId);
+  // console.log(menuItemType, assetId);
   if (menuItemType == "Email") {
     let liHtml = "";
     let emailData = data[currentBuid]["email"];
@@ -576,13 +580,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
     });
 
     $(".ck-left-l2-menu-item").on('click',function () {
-      console.log(
-        "clicked View audit history for ",
-        $(this).attr("assetName"), ' -- ', 
-        $(this).attr("assetId"),
-        " -- ",
-        $(this).attr("timeStamp")
-      );
+      //console.log( "clicked View audit history for ", $(this).attr("assetName"), ' -- ',  $(this).attr("assetId"), " -- ", $(this).attr("timeStamp") );
       let assetName = $(this).attr("assetName");
       let assetId = $(this).attr("assetId");
       let timeStamp = $(this).attr("timeStamp");
@@ -622,7 +620,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      console.log("clicked from submenu ", $(this).attr("menutype"));
+      // console.log("clicked submenu ", $(this).attr("menutype"));
     });
   } else if (menuItemType == "Landing Pages") {
     let liHtml = "";
@@ -657,7 +655,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      console.log("clicked from submenu ", $(this).attr("menutype"));
+      // console.log("clicked from submenu ", $(this).attr("menutype"));
     });
   } else if (menuItemType == "Automation Studio") {
     {
@@ -693,7 +691,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
       });
 
       $(".ck-left-sub-menu-item").click(function () {
-        console.log("clicked from submenu ", $(this).attr("menutype"));
+        // console.log("clicked from submenu ", $(this).attr("menutype"));
       });
     }
   }
@@ -721,7 +719,7 @@ function showEmailPreview(currentBuid, menuItemType, assetName, assetId, timeSta
         //htmlContent = tableStart + htmlContent + tableEnd;
       
         var newDom = new DOMParser().parseFromString(emailHtml, "text/html")
-        console.log(newDom);
+        // console.log(newDom);
       
         let v = document.getElementById("ck-email-preview-body");
         let iframe = document.createElement('iframe');
@@ -807,9 +805,9 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
         $('.ck-email-name').text('Query Saved on: ' + executedDate );
         $('.ck-preview-botton-action-text').html('Copy SQL');
         $('.ck-preview-botton-action-btn, .ck-email-name').on('click', function(){
-          console.log('SQL to clipboard - ' ,sqlText);
+          // console.log('SQL to clipboard - ' ,sqlText);
           navigator.clipboard.writeText(sqlText).then(function() {
-            console.log('Async: Copying to clipboard was successful!');
+            // console.log('Async: Copying to clipboard was successful!');
             showToastMessage('SQL Copied to clipboard')
           }, function(err) {
             console.error('Async: Could not copy text: ', err);
@@ -827,14 +825,14 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
 
 async function revertEmail(el) {
   return new Promise((resolve, reject) => {
-    console.log($(el.target))
+    // console.log($(el.target))
     let buid = $(el.target).attr('memberid');
     let assetId = $(el.target).attr('assetId');
     let assetName = $(el.target).attr('assetName');
     let timeStamp = $(el.target).attr('timeStamp');
 
     chrome.storage.local.get(buid, async function (items) {
-      console.log('Getting data in revert email ', items, buid )
+      // console.log('Getting data in revert email ', items, buid )
       let emailArr = items[buid]['email'];
       for(i in emailArr)
       {
@@ -846,11 +844,11 @@ async function revertEmail(el) {
             var body = emailArr[i]['body'];
 
             var csrfToken = await getcsrfToken().catch( function(error){
-              console.log('Invalid CSRF Token. Refresh Marketing Cloud!');
+              // console.log('Invalid CSRF Token. Refresh Marketing Cloud!');
               //alert('CSRF Token is invalid!');
               showToastMessage('CSRF Token Invalid. Kindly refresh Marketing Cloud.');
             });
-            console.log('csrf token ' , csrfToken);
+            // console.log('csrf token ' , csrfToken);
 
             if(csrfToken == undefined) { throw error; }
 
@@ -873,9 +871,9 @@ async function revertEmail(el) {
                 response.json().then( (data) => {
                   if(response.status >= 200 && response.status < 400)
                   {
-                    console.log('Revert Response:') 
-                    console.log('response: ' , response)
-                    console.log('data: ' , data)
+                    // console.log('Revert Response:') 
+                    // console.log('response: ' , response)
+                    // console.log('data: ' , data)
                     showToastMessage('Email reverted back to this version!')
                     //reloadTab(tabId);
                     isReverted = true; 
@@ -890,7 +888,7 @@ async function revertEmail(el) {
                 });
               }) 
               .catch(function(error) {                        // catch
-                console.log('Request failed', error);
+                // console.log('Request failed', error);
                 isReverted = false; 
                 resolve(isReverted);
                 //return isReverted;
@@ -898,7 +896,7 @@ async function revertEmail(el) {
             }
             catch(e) 
             {
-              console.log('Error making fetch request ' , e)
+              // console.log('Error making fetch request ' , e)
               showToastMessage('Error reverting email (fetch error).')
             }
           }
