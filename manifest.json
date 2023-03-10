@@ -31,15 +31,9 @@
   ],
   "permissions": [
     "storage",
-    "activeTab",
-    "scripting",
     "webRequest",
     "tabs",
-    "unlimitedStorage",
-    "downloads",
-    "webNavigation",
-    "cookies",
-    "scripting"
+    "unlimitedStorage"
   ],
   "action": {
     "default_popup": "popup.html",

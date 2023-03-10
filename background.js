@@ -79,7 +79,7 @@ chrome.webRequest.onBeforeRequest.addListener(
       assetData['compiledHtml'] = compile(putJson, "email");
 
       let isDuplicateEmail = await isDuplicateRequestEmailRequest(memberId, assetData['compiledHtml']);
-      if(isDuplicateEmail) 
+      if(isDuplicateEmail || memberId == '' || memberId.length == 0) 
       {
         console.info('Duplicate save request; not saved')
       } 
@@ -91,7 +91,7 @@ chrome.webRequest.onBeforeRequest.addListener(
       
 
 
-    } else if(details.method == 'PATCH') {
+    } else if(details.method == 'PATCH') { //TODO: Not used, i guess
       var type = "query";
       //From url, make a GET call and in response, get queryText
       var getEndpoint = details.url; 
@@ -128,7 +128,7 @@ chrome.webRequest.onBeforeRequest.addListener(
                 assetId = body.name; 
                 enterpriseId = "Query";
                 
-                saveToLocal(enterpriseId, 'Query', assetId, assetData)
+                // saveToLocal(enterpriseId, 'Query', assetId, assetData)
 
                 }
               );
@@ -158,7 +158,12 @@ chrome.webRequest.onBeforeRequest.addListener(
       assetData['timeStamp']= timeStamp;
       assetData['url']= url;
       
-      saveToLocal(memberId, 'query_studio', timeStamp, assetData);
+      if(memberId == '' || memberId.length == 0) {
+        saveToLocal('0', 'query_studio', timeStamp, assetData);
+      } else {
+        saveToLocal(memberId, 'query_studio', timeStamp, assetData);
+      }
+        
       
     }//if patch ends
 
