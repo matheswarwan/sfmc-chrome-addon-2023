@@ -121,10 +121,10 @@ async function getData() {
 }
 
 async function loadUI(currentBuid) {
-  // console.log("Load UI count : ", loadUICount++);
+  console.log("Load UI count : ", loadUICount++);
 
   data = await getData();
-  // console.log('Get Data... ' , data)
+  console.log('Get Data... ' , data)
   buids = Object.keys(data)
   buids.pop('token');
   currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
@@ -172,7 +172,7 @@ $(".ck-left-split-view-toggle-btn").on("click", () => {
 //Functions
 
 async function setLeftMenuTop(buids, currentBuid) {
-  // console.log("Setting left menu - top order");
+  console.log("Setting left menu - top order");
 
   let liHtml = "";
 
@@ -201,9 +201,10 @@ async function setLeftMenuTop(buids, currentBuid) {
   $('.ck-buid-title').text('  ' 
     + (currentBuid == undefined ? 'No data saved yet!': currentBuid)
     + '  ');
-  
+    
+  //$('.ck-left-split-view-buid-dropdown').off('click');
   $('.ck-left-split-view-buid-dropdown').on('click', function(){
-    // console.log('Dropdown click triggered..')
+    console.log('Dropdown click triggered..')
     $('.ck-left-split-view-buid-dropdown').toggleClass('slds-is-open').toggleClass('slds-is-closed');
   });
 
@@ -221,7 +222,7 @@ async function setLeftMenuTop(buids, currentBuid) {
     //$('.ck-buid-title').text('  ' + currentBuid + '  ');
 
     currentBuid = $(this).attr('buid');
-    // console.log('load ui for ' , currentBuid);
+    console.log('load ui for ' , currentBuid);
     //$('.ck-left-split-view-buid-dropdown').trigger('click');
     loadUI(currentBuid);
   })
@@ -256,9 +257,9 @@ async function setLeftMenuTop(buids, currentBuid) {
             title="${menuItems[item]}"
             >${menuItems[item]}</span
           >
-          <span class="slds-truncate slds-col_bump-left" title="0"
+          <!-- <span class="slds-truncate slds-col_bump-left" title="0"
             >0</span
-          >
+          > -->
         </div>
       </a>
     </li>`;
@@ -276,7 +277,7 @@ async function setLeftMenuTop(buids, currentBuid) {
 
   //Event Listners
   $(".ck-left-menu-item").click(function () {
-    // console.log("clicked on", $(this).attr("menutype"));
+    console.log("clicked on", $(this).attr("menutype"));
     let menuItemType = $(this).attr("menutype");
     if(currentBuid != 0){
       setLeftSubMenu(currentBuid, menuItemType);
@@ -285,7 +286,7 @@ async function setLeftMenuTop(buids, currentBuid) {
 }
 
 async function setLeftSubMenu(currentBuid, menuItemType) {
-  // console.log("Set Left Sub Menu called");
+  console.log("Set Left Sub Menu called");
 
   if (menuItemType == "Email") {
     let liHtml = "";
@@ -334,7 +335,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
               >${uniqueEmails[item]["name"]}</span
             >
             <span class="slds-truncate slds-col_bump-left" title="0"
-              >0</span
+              >${ await getStoredCount(currentBuid, 'email', uniqueEmails[item]["assetId"]) }</span
             >
           </div>
         </a>
@@ -357,7 +358,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
     });
 
     $(".ck-left-sub-menu-item").on('click', function () {
-      // console.log("clicked from submenu ", $(this).attr("menutype"));
+      console.log("clicked from submenu ", $(this).attr("menutype"));
       let assetId = $(this).attr("menutype");
       setAuditHistoryUI(menuItemType, currentBuid, assetId);
     });
@@ -421,7 +422,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      // console.log("clicked from submenu ", $(this).attr("timeStamp"));
+      console.log("clicked from submenu ", $(this).attr("timeStamp"));
       let timeStamp = $(this).attr("timeStamp")
       showQueryStudioPreview(menuItemType, timeStamp) ;
     });
@@ -458,7 +459,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      // console.log("clicked from submenu ", $(this).attr("menutype"));
+      console.log("clicked from submenu ", $(this).attr("menutype"));
     });
   } else if (menuItemType == "Automation Studio") {
     {
@@ -494,14 +495,14 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
       });
 
       $(".ck-left-sub-menu-item").click(function () {
-        // console.log("clicked from submenu ", $(this).attr("menutype"));
+        console.log("clicked from submenu ", $(this).attr("menutype"));
       });
     }
   }
 }
 
 async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
-  // console.log(menuItemType, assetId);
+  console.log(menuItemType, assetId);
   if (menuItemType == "Email") {
     let liHtml = "";
     let emailData = data[currentBuid]["email"];
@@ -554,9 +555,9 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
                 title="${emailData[item]["timeStamp"]}"
                 >${savedTime}</span
               >
-              <span class="slds-truncate slds-col_bump-left" title="0"
+              <!-- <span class="slds-truncate slds-col_bump-left" title="0"
                 >0</span
-              >
+              > -->
             </div>
           </a>
         </li>`;
@@ -620,7 +621,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      // console.log("clicked submenu ", $(this).attr("menutype"));
+      console.log("clicked submenu ", $(this).attr("menutype"));
     });
   } else if (menuItemType == "Landing Pages") {
     let liHtml = "";
@@ -655,7 +656,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
     });
 
     $(".ck-left-sub-menu-item").click(function () {
-      // console.log("clicked from submenu ", $(this).attr("menutype"));
+      console.log("clicked from submenu ", $(this).attr("menutype"));
     });
   } else if (menuItemType == "Automation Studio") {
     {
@@ -691,7 +692,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
       });
 
       $(".ck-left-sub-menu-item").click(function () {
-        // console.log("clicked from submenu ", $(this).attr("menutype"));
+        console.log("clicked from submenu ", $(this).attr("menutype"));
       });
     }
   }
@@ -719,7 +720,7 @@ function showEmailPreview(currentBuid, menuItemType, assetName, assetId, timeSta
         //htmlContent = tableStart + htmlContent + tableEnd;
       
         var newDom = new DOMParser().parseFromString(emailHtml, "text/html")
-        // console.log(newDom);
+        console.log(newDom);
       
         let v = document.getElementById("ck-email-preview-body");
         let iframe = document.createElement('iframe');
@@ -805,9 +806,9 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
         $('.ck-email-name').text('Query Saved on: ' + executedDate );
         $('.ck-preview-botton-action-text').html('Copy SQL');
         $('.ck-preview-botton-action-btn, .ck-email-name').on('click', function(){
-          // console.log('SQL to clipboard - ' ,sqlText);
+          console.log('SQL to clipboard - ' ,sqlText);
           navigator.clipboard.writeText(sqlText).then(function() {
-            // console.log('Async: Copying to clipboard was successful!');
+            console.log('Async: Copying to clipboard was successful!');
             showToastMessage('SQL Copied to clipboard')
           }, function(err) {
             console.error('Async: Could not copy text: ', err);
@@ -825,14 +826,14 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
 
 async function revertEmail(el) {
   return new Promise((resolve, reject) => {
-    // console.log($(el.target))
+    console.log($(el.target))
     let buid = $(el.target).attr('memberid');
     let assetId = $(el.target).attr('assetId');
     let assetName = $(el.target).attr('assetName');
     let timeStamp = $(el.target).attr('timeStamp');
 
     chrome.storage.local.get(buid, async function (items) {
-      // console.log('Getting data in revert email ', items, buid )
+      console.log('Getting data in revert email ', items, buid )
       let emailArr = items[buid]['email'];
       for(i in emailArr)
       {
@@ -844,11 +845,11 @@ async function revertEmail(el) {
             var body = emailArr[i]['body'];
 
             var csrfToken = await getcsrfToken().catch( function(error){
-              // console.log('Invalid CSRF Token. Refresh Marketing Cloud!');
+              console.log('Invalid CSRF Token. Refresh Marketing Cloud!');
               //alert('CSRF Token is invalid!');
               showToastMessage('CSRF Token Invalid. Kindly refresh Marketing Cloud.');
             });
-            // console.log('csrf token ' , csrfToken);
+            console.log('csrf token ' , csrfToken);
 
             if(csrfToken == undefined) { throw error; }
 
@@ -871,9 +872,9 @@ async function revertEmail(el) {
                 response.json().then( (data) => {
                   if(response.status >= 200 && response.status < 400)
                   {
-                    // console.log('Revert Response:') 
-                    // console.log('response: ' , response)
-                    // console.log('data: ' , data)
+                    console.log('Revert Response:') 
+                    console.log('response: ' , response)
+                    console.log('data: ' , data)
                     showToastMessage('Email reverted back to this version!')
                     //reloadTab(tabId);
                     isReverted = true; 
@@ -888,7 +889,7 @@ async function revertEmail(el) {
                 });
               }) 
               .catch(function(error) {                        // catch
-                // console.log('Request failed', error);
+                console.log('Request failed', error);
                 isReverted = false; 
                 resolve(isReverted);
                 //return isReverted;
@@ -896,7 +897,7 @@ async function revertEmail(el) {
             }
             catch(e) 
             {
-              // console.log('Error making fetch request ' , e)
+              console.log('Error making fetch request ' , e)
               showToastMessage('Error reverting email (fetch error).')
             }
           }
@@ -991,6 +992,28 @@ function sanitizeEmailPutURL(url) {
   return t.toString(); 
 }
 
+async function getStoredCount(memberId, assetType, assetId) {
+  var emailCount = 0;
+  return new Promise(async (resolve, reject) => {
+    if(assetType == 'email') {
+      var data = await getData();
+      if(Object.keys(data).includes(memberId)) //BU Exists
+      {
+        if(Object.keys(data[memberId]).includes('email')) //Email exists
+        {
+          for(i in data[memberId]['email']) {
+            if(data[memberId]['email'][i].assetId == assetId) {
+              emailCount++;
+            }
+          }
+        }
+      }
+    }
+    console.log('Get stored count ' , memberId, assetType, assetId, emailCount)
+    //return 5;
+  });
+  resolve(emailCount);
+}
 
 
 
