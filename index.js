@@ -293,6 +293,7 @@ async function setLeftMenuTop(buids, currentBuid) {
 
 async function setLeftSubMenu(currentBuid, menuItemType) {
   console.log("Set Left Sub Menu called");
+  currentBuid = (currentBuid == undefined ? 0 : currentBuid)
 
   if (menuItemType == "Email") {
     let liHtml = "";
