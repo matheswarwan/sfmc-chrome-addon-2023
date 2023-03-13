@@ -177,7 +177,10 @@ async function setLeftMenuTop(buids, currentBuid) {
   let liHtml = "";
 
   
-  for(i in buids) {
+  // for(i in buids) {
+  //Set Current BUID as the last BUID 
+  currentBuid = buids[buids.length-1];
+  for(var i=buids.length-1; i>=0; i--) {
     liHtml += `
       <li class="slds-dropdown__item" role="presentation">
          <a href="#" role="menuitem" tabindex="-1" buid="${buids[i]}" class="ck-left-split-view-buid-dropdown-li" >
@@ -202,7 +205,7 @@ async function setLeftMenuTop(buids, currentBuid) {
     + (currentBuid == undefined ? 'No data saved yet!': currentBuid)
     + '  ');
     
-  //$('.ck-left-split-view-buid-dropdown').off('click');
+  $('.ck-left-split-view-buid-dropdown').off('click');
   $('.ck-left-split-view-buid-dropdown').on('click', function(){
     console.log('Dropdown click triggered..')
     $('.ck-left-split-view-buid-dropdown').toggleClass('slds-is-open').toggleClass('slds-is-closed');
@@ -321,7 +324,10 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
       </a>
     </li>`;
 
+    console.log(uniqueEmails);
     for (item in uniqueEmails) {
+      var emailStoredCount = '';
+      //var emailStoredCount = await getStoredCount(currentBuid, 'email', uniqueEmails[item]["assetId"]);
       liHtml += `
       <li class="slds-split-view__list-item" role="presentation">
         <a
@@ -338,11 +344,12 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
               >${uniqueEmails[item]["name"]}</span
             >
             <span class="slds-truncate slds-col_bump-left" title="0"
-              >${ await getStoredCount(currentBuid, 'email', uniqueEmails[item]["assetId"]) }</span
+              >${ emailStoredCount }</span
             >
           </div>
         </a>
       </li>`;
+      console.log(item + ' -- ' + uniqueEmails[item] + ' - ' + emailStoredCount )
     }
 
     var html = `<ul
@@ -771,8 +778,9 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
 
     $('.ck-revert-btn').remove();
     
-    buids = Object.keys(data)
-    buids.pop('token');
+    buids = Object.keys(data);
+    buids = buids.filter((id) => id != 'token'); //Remove Token
+
     let queryStudioData = [];
     for(i in buids) {
       queryStudioData = queryStudioData.concat(data[buids[i]]['query_studio']);
@@ -807,7 +815,7 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
       
 
         $('.ck-email-name').text('Query Saved on: ' + executedDate );
-        $('.ck-preview-botton-action-text').html('Copy SQL');
+        $('.ck-preview-botton-action-text, .ck-preview-botton-action-btn').html('Copy SQL');
         $('.ck-preview-botton-action-btn, .ck-email-name').on('click', function(){
           console.log('SQL to clipboard - ' ,sqlText);
           navigator.clipboard.writeText(sqlText).then(function() {
