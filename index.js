@@ -279,9 +279,12 @@ async function setLeftMenuTop(buids, currentBuid) {
   $(".ck-left-menu-item").click(function () {
     console.log("clicked on", $(this).attr("menutype"));
     let menuItemType = $(this).attr("menutype");
-    if(currentBuid != 0){
-      setLeftSubMenu(currentBuid, menuItemType);
-    }
+    // Removed this to show query studio results even when the BU is selected as 0
+    // if(currentBuid != 0){
+    //   setLeftSubMenu(currentBuid, menuItemType);
+    // }
+
+    setLeftSubMenu(currentBuid, menuItemType);
   });
 }
 
