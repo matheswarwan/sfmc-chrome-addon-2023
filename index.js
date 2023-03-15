@@ -3,8 +3,20 @@ let currentBuid = 0;
 let buids;
 let loadUICount = 0;
 const allowedTokenAge = 15;
+let data;
+
+// (async () => {
+//   data = await getData();
+// })();
+
+// chrome.storage.local.get(null, async function(items) {
+//   data = items;
+// });
+
+
+
 // This is just data format; not actual data;
-let data = {
+let data_dev = {
   100015966: {
     email: [
       {
@@ -108,13 +120,19 @@ let data = {
 };
 
 (async function main() {
+  data = await getData();
+  console.log('Get Data in global... ' , data)
+  buids = Object.keys(data)
+  buids = buids.filter((id) => id != 'token' && id != '0' && id != 'lastAccessed');
+  currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
+
   loadUI(currentBuid);
 })();
 
 
 async function getData() {
-  return new Promise( (resolve, reject)=> {
-    chrome.storage.local.get(null, function(items) {
+  return new Promise( (resolve, reject) => {
+    chrome.storage.local.get(null, async function(items) {
       resolve(items);
     })
   });
@@ -123,14 +141,20 @@ async function getData() {
 async function loadUI(currentBuid) {
   console.log("Load UI count : ", loadUICount++);
 
-  data = await getData();
-  console.log('Get Data... ' , data)
-  buids = Object.keys(data)
-  buids.pop('token');
-  currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
+  // data = await getData();
+  // console.log('Get Data... ' , data)
+  // buids = Object.keys(data)
+  // buids = buids.filter((id) => id != 'token' && id != '0');
+  // currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
+
+  // let t = await getcsrfToken().catch(function(){ 
+  //   console.log('Error fetching CSRF Token')
+  // });
+  // console.log(t);
 
   //Global Event Listners Set UI items
-  //$(".ck-buid-title").text(currentBuid); //Set BUID as title
+  // $('.ck-buid-title').text('  ' + (currentBuid == undefined ? 'No history!': currentBuid) + '  '); //Set BUID as title
+  setTitle();//Set BUID as title
   if(buids != undefined) {
     $(".ck-title-items-count").text(
       buids.length + " Business units found."
@@ -148,7 +172,15 @@ async function loadUI(currentBuid) {
   $('.ck-left-split-view-buid-dropdown-li').off('click');
   $('.ck-left-split-view-buid-dropdown-ul').off('click');
   $('.ck-items-refresh-btn').off('click');
-  
+  $('.ck-left-split-view-clear-all-btn').off('click');
+
+  $('.ck-left-split-view-clear-all-btn').on('click', async function() {
+    chrome.storage.local.clear();
+    $(".ck-items-refresh-btn").trigger('click');  
+    //TODO: Reload UI
+    showToastMessage('All Contents Cleared!!!');
+  })
+
   $(".ck-items-refresh-btn").on("click", function() {
     loadUI(currentBuid);
   });
@@ -201,34 +233,28 @@ async function setLeftMenuTop(buids, currentBuid) {
 
   $('.ck-left-split-view-buid-dropdown-ul').html(liHtml);
   //debugger;
-  $('.ck-buid-title').text('  ' 
-    + (currentBuid == undefined ? 'No data saved yet!': currentBuid)
-    + '  ');
-    
   $('.ck-left-split-view-buid-dropdown').off('click');
   $('.ck-left-split-view-buid-dropdown').on('click', function(){
     console.log('Dropdown click triggered..')
     $('.ck-left-split-view-buid-dropdown').toggleClass('slds-is-open').toggleClass('slds-is-closed');
   });
-
-  // $('.ck-left-split-view-buid-dropdown-btn').on('click', function(){
-  //   $('.ck-left-split-view-buid-dropdown').toggleClass('slds-is-open').toggleClass('slds-is-closed')
-  // });
-
-
-  // $('.ck-left-split-view-buid-dropdown-li').on('click', function(){
-  //   $('.ck-left-split-view-buid-dropdown').toggleClass('slds-is-open').toggleClass('slds-is-closed')
-  // });
-
-  $('.ck-left-split-view-buid-dropdown-li').on('click', function(){
-    //$('.ck-left-split-view-buid-dropdown').toggleClass('slds-is-open').toggleClass('slds-is-closed')
-    //$('.ck-buid-title').text('  ' + currentBuid + '  ');
-
+  
+  $('.ck-left-split-view-buid-dropdown-li').on('click', async function(){
     currentBuid = $(this).attr('buid');
     console.log('load ui for ' , currentBuid);
+    // $('.ck-buid-title').text('  ' + (currentBuid == undefined ? 'No history!': currentBuid) + '  ');
+    console.log('Current BU ID On change ' , currentBuid)
+    await setCurrentBUID(currentBuid)
+      .then(function(){
+        setTitle();
+      })
+      .then(function(){
+        loadUI(currentBuid);
+      })
+    // await setTitle();
     //$('.ck-left-split-view-buid-dropdown').trigger('click');
-    loadUI(currentBuid);
-  })
+    // loadUI(currentBuid);
+  });
   
 
   // let menuItems = [
@@ -292,8 +318,9 @@ async function setLeftMenuTop(buids, currentBuid) {
 }
 
 async function setLeftSubMenu(currentBuid, menuItemType) {
-  console.log("Set Left Sub Menu called");
-  currentBuid = (currentBuid == undefined ? 0 : currentBuid)
+  console.log("Set Left Sub Menu called with current BUID - " , currentBuid);
+  // currentBuid = (currentBuid == undefined ? 0 : currentBuid)
+  currentBuid = ( $('.ck-buid-title').text().trim().length > 0 ? $('.ck-buid-title').text().trim() : currentBuid);
 
   if (menuItemType == "Email") {
     let liHtml = "";
@@ -711,6 +738,7 @@ async function setAuditHistoryUI(menuItemType, currentBuid, assetId) {
 
 function showEmailPreview(currentBuid, menuItemType, assetName, assetId, timeStamp) {
   if(menuItemType == 'Email') { 
+    $('.ck-email-toast-div').removeClass('slds-show');
     $('.ck-email-preview-screen').removeClass('slds-hide').addClass('slds-show');
     $('.ck-email-name').text(assetName);
     $('.ck-preview-botton-action-btn').html('Revert to this version')
@@ -780,7 +808,7 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
     $('.ck-revert-btn').remove();
     
     buids = Object.keys(data);
-    buids = buids.filter((id) => id != 'token'); //Remove Token
+    buids = buids.filter((id) => id != 'token' && id != 'lastAccessed'); //Remove Token
 
     let queryStudioData = [];
     for(i in buids) {
@@ -947,7 +975,12 @@ function showToastMessage(message) {
     //Remove old ones 
     $('.ck-toast-message-main').remove();
 
-    $('.slds-grid.slds-einstein-header.slds-card__header').prepend(toastDiv);
+    if($('.slds-grid.slds-einstein-header.slds-card__header').is(':visible') > 0){
+      $('.slds-grid.slds-einstein-header.slds-card__header').prepend(toastDiv);
+    } else {
+      $('.ck-email-toast-div').removeClass('slds-hide').addClass('slds-show').prepend(toastDiv);
+    }
+    
     $('.ck-toast-message-main').show();
 
     $('.ck-toast-message-close-btn').off('click');
@@ -961,7 +994,7 @@ function showToastMessage(message) {
   //$('body').append(toastDiv);
 }
 
-async function getcsrfToken() {
+async function getcsrfToken_old() {
   return new Promise( (resolve, reject) => {
     chrome.storage.local.get('token', function(token){
       if(Object.keys(token['token']).includes('X-CSRF-Token') && Object.keys(token['token']).includes('createdDate'))
@@ -971,6 +1004,28 @@ async function getcsrfToken() {
         if( currentTokenAge < allowedTokenAge ) 
         {
           resolve(token['token']['X-CSRF-Token'])
+        }
+        else 
+        {
+          reject(false);
+        }
+      }
+    });
+  });
+}
+
+async function getcsrfToken() {
+  return new Promise( (resolve, reject) => {
+    chrome.storage.local.get(currentBuid, function(item){
+      console.log(currentBuid,item);
+      if(Object.keys(item[currentBuid]['token']).includes('X-CSRF-Token') && Object.keys(item[currentBuid]['token']).includes('createdDate'))
+      {
+        //Check if token is within 10 mins valid
+        let currentTokenAge = ( new Date() - new Date(item[currentBuid]['token']['createdDate']) ) / 60000 ; //this returns in minute
+        console.log(item, currentTokenAge, item[currentBuid]['token']['X-CSRF-Token'])
+        if( currentTokenAge < allowedTokenAge ) 
+        {
+          resolve(item[currentBuid]['token']['X-CSRF-Token'])
         }
         else 
         {
@@ -1027,6 +1082,28 @@ async function getStoredCount(memberId, assetType, assetId) {
   resolve(emailCount);
 }
 
+async function setCurrentBUID(currentBuid) {
+  return new Promise( (resolve, reject) => {
+    var lastAccessedBU = { 
+      'lastAccessed' : { 'buid' : currentBuid, 'time' : new Date().valueOf() } 
+    }
+    chrome.storage.local.set(lastAccessedBU, function(){
+      console.log('lastAccessedBU saved ' , lastAccessedBU )
+      resolve(true);
+    })
+  });
+}
+
+async function setTitle() {
+  return new Promise( (resolve, reject) => {
+    chrome.storage.local.get('lastAccessed', function(item){
+      console.log('lastAccessedBU from SAVED ' , item['lastAccessed']['buid'] );
+      var lastAccessedBU = item['lastAccessed']['buid'];
+      $('.ck-buid-title').text('  ' + lastAccessedBU + '  ');
+      resolve(true);
+    })
+  });
+}
 
 
 /* SF CONTENT RENDERING METHOD - START */

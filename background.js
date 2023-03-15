@@ -3,7 +3,7 @@ console.log('Background js loaded..')
 //Global
 // let memberId = '515010937'; //TODO: Change this
 let memberId = ''; //TODO: Change this
-
+let token = '';
 
 /* Read X-CSRF-TOKEN on Request Save */ 
 // chrome.webNavigation.onBeforeNavigate.addListener(function(){
@@ -19,9 +19,16 @@ let memberId = ''; //TODO: Change this
                 'createdDate': new Date().valueOf()
               }
             };
-            chrome.storage.local.set(item, function () {
-              // console.log('*** CSRF TOKEN *** ' , item , ' stored' )
-            })
+            token = item; 
+            // console.log('BUID & TOken' , memberId , token);
+            if(memberId == '') { break; }
+
+            chrome.storage.local.get(memberId, function(existingItems){
+              existingItems[memberId]['token'] = item.token;
+              chrome.storage.local.set(existingItems, function () {
+                // console.log('*** CSRF TOKEN *** ' , item , ' stored' )
+              });
+            });
           }
         }
       }
@@ -86,7 +93,8 @@ chrome.webRequest.onBeforeRequest.addListener(
       else 
       {
         console.info('Save request processed')
-        saveToLocal(memberId, assetType, assetId, assetData)
+        saveToLocal(memberId, assetType, assetId, assetData);
+        await setCurrentBUID(memberId);
       }
       
 
@@ -335,6 +343,18 @@ async function isDuplicateRequestEmailRequest(memberId,compiledHtml) {
       }
       resolve(isDuplicate);
     });
+  });
+}
+
+
+async function setCurrentBUID(currentBuid) {
+  return new Promise( (resolve, reject) => {
+    var lastAccessedBU = { 
+      'lastAccessed' : { 'buid' : currentBuid, 'time' : new Date().valueOf() } 
+    }
+    chrome.storage.local.set(lastAccessedBU, function(){
+      console.log('lastAccessedBU saved ' , lastAccessedBU )
+    })
   });
 }
 
