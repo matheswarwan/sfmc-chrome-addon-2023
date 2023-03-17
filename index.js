@@ -1,4 +1,18 @@
 console.log('Addon loaded...')
+
+const GLOBAL = {};
+GLOBAL.EMAIL = {};
+GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_TOKEN = '❌ Token invalid. It looks like you haven\'t accessed marketing cloud in last 10 minutes. Kindly refresh Marketing Cloud.';
+GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_FETCH_API_CALL = '❌ Error reverting email (fetch error).';
+GLOBAL.EMAIL.TOAST_MESSAGE_EMAIL_REVERTED = '✅ Email reverted back to this version!';
+GLOBAL.EMAIL.TOAST_MESSAGE_CONTENT_CLEARED = '🪹 All Contents Cleared!!!';
+GLOBAL.EMAIL.TOAST_MESSAGE_SQL_COPIED = '👍 SQL Copied to clipboard';
+GLOBAL.EMAIL.TOAST_MESSAGE_SQL_COPY_ERROR = '❌ Unable to copy to clipboard';
+GLOBAL.EMAIL.TOAST_DURATION = 5 * 1000; //seconds
+GLOBAL.TOAST = {};
+GLOBAL.TOAST.SUCCESS = 'success';
+GLOBAL.TOAST.ERROR = 'error';
+
 let currentBuid = 0;
 let buids;
 let loadUICount = 0;
@@ -124,7 +138,8 @@ let data_dev = {
   console.log('Get Data in global... ' , data)
   buids = Object.keys(data)
   buids = buids.filter((id) => id != 'token' && id != '0' && id != 'lastAccessed');
-  currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
+  // currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
+  currentBuid = await getCurrentBUID().catch(()=>{ return 0 });
 
   loadUI(currentBuid);
 })();
@@ -141,11 +156,12 @@ async function getData() {
 async function loadUI(currentBuid) {
   console.log("Load UI count : ", loadUICount++);
 
-  // data = await getData();
-  // console.log('Get Data... ' , data)
-  // buids = Object.keys(data)
-  // buids = buids.filter((id) => id != 'token' && id != '0');
+  data = await getData();
+  console.log('Get Data... ' , data)
+  buids = Object.keys(data)
+  buids = buids.filter((id) => id != 'token' && id != '0' && id != 'lastAccessed');
   // currentBuid = (currentBuid == 0 ? buids[0] : currentBuid)
+  currentBuid = await getCurrentBUID().catch(()=>{ return 0 });
 
   // let t = await getcsrfToken().catch(function(){ 
   //   console.log('Error fetching CSRF Token')
@@ -154,10 +170,17 @@ async function loadUI(currentBuid) {
 
   //Global Event Listners Set UI items
   // $('.ck-buid-title').text('  ' + (currentBuid == undefined ? 'No history!': currentBuid) + '  '); //Set BUID as title
-  setTitle();//Set BUID as title
-  if(buids != undefined) {
+  setTitle().catch(()=> 
+    { 
+      console.log('Error setting title') 
+    });//Set BUID as title
+  if(buids != undefined && buids.length > 0) {
     $(".ck-title-items-count").text(
       buids.length + " Business units found."
+    ); //Set BUID as title
+  } else {
+    $(".ck-title-items-count").text(
+      "No data saved yet!"
     ); //Set BUID as title
   }
   //OFF / Remove ALL Event listners 
@@ -174,11 +197,14 @@ async function loadUI(currentBuid) {
   $('.ck-items-refresh-btn').off('click');
   $('.ck-left-split-view-clear-all-btn').off('click');
 
+  //Hide preview screen
+  $('.ck-email-preview-screen').removeClass('slds-show').addClass('slds-hide');
+
   $('.ck-left-split-view-clear-all-btn').on('click', async function() {
     chrome.storage.local.clear();
     $(".ck-items-refresh-btn").trigger('click');  
     //TODO: Reload UI
-    showToastMessage('All Contents Cleared!!!');
+    showToastMessage(GLOBAL.TOAST.SUCCESS, GLOBAL.EMAIL.TOAST_MESSAGE_CONTENT_CLEARED);
   })
 
   $(".ck-items-refresh-btn").on("click", function() {
@@ -246,7 +272,10 @@ async function setLeftMenuTop(buids, currentBuid) {
     console.log('Current BU ID On change ' , currentBuid)
     await setCurrentBUID(currentBuid)
       .then(function(){
-        setTitle();
+        setTitle().catch(()=> 
+        { 
+          console.log('Error setting title') 
+        });
       })
       .then(function(){
         loadUI(currentBuid);
@@ -402,7 +431,11 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
     });
   } else if (menuItemType == "Query Studio") {
     let liHtml = "";
-    let queryStudioData = data[currentBuid]["query_studio"];
+    let queryStudioData = []; 
+    for(buid in buids) {
+      queryStudioData = queryStudioData.concat(data[buids[buid]]["query_studio"]);
+    } 
+    queryStudioData = queryStudioData.filter((item) => { return item != undefined; });
 
     liHtml = ` <li class="slds-split-view__list-item" role="presentation">
       <a
@@ -437,9 +470,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
                 queryStudioData[item]["timeStamp"]
               )}</span
             >
-            <span class="slds-truncate slds-col_bump-left" title="0"
-              >0</span
-            >
+            <!-- <span class="slds-truncate slds-col_bump-left" title="0">0</span> -->
           </div>
         </a>
       </li>`;
@@ -849,10 +880,10 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
           console.log('SQL to clipboard - ' ,sqlText);
           navigator.clipboard.writeText(sqlText).then(function() {
             console.log('Async: Copying to clipboard was successful!');
-            showToastMessage('SQL Copied to clipboard')
+            showToastMessage(GLOBAL.TOAST.SUCCESS, GLOBAL.EMAIL.TOAST_MESSAGE_SQL_COPIED);
           }, function(err) {
             console.error('Async: Could not copy text: ', err);
-            showToastMessage('Unable to copy to clipboard')
+            showToastMessage(GLOBAL.TOAST.ERROR, GLOBAL.EMAIL.TOAST_MESSAGE_SQL_COPY_ERROR);
           });
         });
 
@@ -887,7 +918,7 @@ async function revertEmail(el) {
             var csrfToken = await getcsrfToken().catch( function(error){
               console.log('Invalid CSRF Token. Refresh Marketing Cloud!');
               //alert('CSRF Token is invalid!');
-              showToastMessage('CSRF Token Invalid. Kindly refresh Marketing Cloud.');
+              showToastMessage(GLOBAL.TOAST.ERROR, GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_TOKEN);
             });
             console.log('csrf token ' , csrfToken);
 
@@ -915,14 +946,14 @@ async function revertEmail(el) {
                     console.log('Revert Response:') 
                     console.log('response: ' , response)
                     console.log('data: ' , data)
-                    showToastMessage('Email reverted back to this version!')
+                    showToastMessage(GLOBAL.TOAST.SUCCESS, GLOBAL.EMAIL.TOAST_MESSAGE_EMAIL_REVERTED)
                     //reloadTab(tabId);
                     isReverted = true; 
                     resolve(isReverted);
                     //return isReverted;
                   }else {
                     isReverted = false; 
-                    showToastMessage('Error reverting email!')
+                    showToastMessage(GLOBAL.TOAST.ERROR, 'Error reverting email!')
                     resolve(isReverted);
                     //return isReverted;
                   }
@@ -938,7 +969,7 @@ async function revertEmail(el) {
             catch(e) 
             {
               console.log('Error making fetch request ' , e)
-              showToastMessage('Error reverting email (fetch error).')
+              showToastMessage(GLOBAL.TOAST.ERROR, GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_FETCH_API_CALL);
             }
           }
       }
@@ -948,15 +979,15 @@ async function revertEmail(el) {
   });
 }
 
-function showToastMessage(message) {
+function showToastMessage(toastType, message) {
   var toastDiv = 
     `<div class="ck-toast-message-main slds-notify_container slds-is-relative">
-    <div class="slds-notify slds-notify_toast slds-theme_success" role="status">
-    <span class="slds-assistive-text">success</span>
-    <span class="slds-icon_container slds-icon-utility-success slds-m-right_small slds-no-flex slds-align-top" title="Description of icon when needed">
-    <svg class="slds-icon slds-icon_small" aria-hidden="true">
+    <div class="slds-notify slds-notify_toast slds-theme_${toastType}" role="status">
+    <span class="slds-assistive-text">${toastType}</span>
+    <span class="slds-icon_container slds-icon-utility-${toastType} slds-m-right_small slds-no-flex slds-align-top" title="Description of icon when needed">
+    <!-- <svg class="slds-icon slds-icon_small" aria-hidden="true">
     <use xlink:href="/assets/icons/utility-sprite/svg/symbols.svg#success"></use>
-    </svg>
+    </svg> -->
     </span>
     <div class="slds-notify__content">
     <h2 class="slds-text-heading_small ">${message}</h2>
@@ -989,7 +1020,7 @@ function showToastMessage(message) {
       $('.ck-toast-message-main').remove();
     });
 
-    $('.ck-toast-message-main').delay(5000).fadeOut('slow');
+    $('.ck-toast-message-main').delay(GLOBAL.EMAIL.TOAST_DURATION).fadeOut('slow');
 
   //$('body').append(toastDiv);
 }
@@ -1094,13 +1125,31 @@ async function setCurrentBUID(currentBuid) {
   });
 }
 
+
+async function getCurrentBUID(currentBuid) {
+  return new Promise( (resolve, reject) => {
+    chrome.storage.local.get('lastAccessed', function(item){
+      if(Object.keys(item).includes('lastAccessed')) {
+        let lastAccessedBU = item['lastAccessed']['buid'];
+        resolve(lastAccessedBU);
+      } else {
+        reject(false);
+      }
+    })
+  });
+}
+
 async function setTitle() {
   return new Promise( (resolve, reject) => {
     chrome.storage.local.get('lastAccessed', function(item){
-      console.log('lastAccessedBU from SAVED ' , item['lastAccessed']['buid'] );
-      var lastAccessedBU = item['lastAccessed']['buid'];
-      $('.ck-buid-title').text('  ' + lastAccessedBU + '  ');
-      resolve(true);
+      if(Object.keys(item).includes('lastAccessed')) {
+        console.log('lastAccessedBU from SAVED ' , item['lastAccessed']['buid'] );
+        var lastAccessedBU = item['lastAccessed']['buid'];
+        $('.ck-buid-title').text('  ' + lastAccessedBU + '  ');
+        resolve(true);
+      } else {
+        reject(false);
+      }
     })
   });
 }

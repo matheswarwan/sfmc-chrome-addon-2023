@@ -1,5 +1,5 @@
 console.log('Background js loaded..')
-
+const delay = ms => new Promise(res => setTimeout(res, ms));
 //Global
 // let memberId = '515010937'; //TODO: Change this
 let memberId = ''; //TODO: Change this
@@ -213,7 +213,15 @@ chrome.webRequest.onBeforeRequest.addListener(
 
 //Global Functions 
 
+async function changeIcon() { 
+    //Update icon to show something is saved
+    chrome.action.setIcon({ path:  "./images/get_started48_recording.png" });
+    await delay(5000);
+    chrome.action.setIcon({ path:  "./images/get_started48.png" });
+}
+
 function saveToLocal(memberId, assetType, assetId,assetData) {
+  changeIcon();
   // console.log('SaveToLocal - Asset id - ' + assetId + ' - memberId - ' + memberId)
   // console.log(assetData)
   /* Save to storage */
@@ -223,14 +231,14 @@ function saveToLocal(memberId, assetType, assetId,assetData) {
   }else {
     // console.log(memberId);
     chrome.storage.local.get(memberId, function(items){
-      // console.log(items);
+      console.log(items);
       if(Object.keys(items).length > 0) { 
-        if(assetType == 'Email' && Object.keys(items[memberId]['email']).length > 0) {
+        if(assetType == 'Email' && Object.keys(items[memberId]['email']).length > -1) {
           items[memberId]['email'].push(assetData);
-          // console.log('Emali Items already found. updaed item ' , items , ' with asset data ' , assetData)
+          console.log('Emali Items already found. updaed item ' , items , ' with asset data ' , assetData)
           chrome.storage.local.set(items, function() {
-            // console.log('New item stored');
-            // console.log(items)
+            console.log('New item stored');
+            console.log(items)
           });
         } else if(assetType == 'query_studio') {
           //Query studio key exists - so store there.
@@ -353,7 +361,8 @@ async function setCurrentBUID(currentBuid) {
       'lastAccessed' : { 'buid' : currentBuid, 'time' : new Date().valueOf() } 
     }
     chrome.storage.local.set(lastAccessedBU, function(){
-      console.log('lastAccessedBU saved ' , lastAccessedBU )
+      console.log('lastAccessedBU saved ' , lastAccessedBU );
+      resolve(true);
     })
   });
 }
