@@ -341,7 +341,7 @@ async function setLeftMenuTop(buids, currentBuid) {
     // if(currentBuid != 0){
     //   setLeftSubMenu(currentBuid, menuItemType);
     // }
-
+    currentBuid (currentBuid == undefined ? 0 : currentBuid);
     setLeftSubMenu(currentBuid, menuItemType);
   });
 }
@@ -432,6 +432,7 @@ async function setLeftSubMenu(currentBuid, menuItemType) {
   } else if (menuItemType == "Query Studio") {
     let liHtml = "";
     let queryStudioData = []; 
+    queryStudioData = queryStudioData.concat(data[0]["query_studio"]); // get data from 0th BU 
     for(buid in buids) {
       queryStudioData = queryStudioData.concat(data[buids[buid]]["query_studio"]);
     } 
