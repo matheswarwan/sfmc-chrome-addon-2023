@@ -26,7 +26,7 @@
   },
   "host_permissions": [
     "https://*.marketingcloudapps.com/*",
-    "https://*.exacttarget.com/",
+    "https://*.exacttarget.com/*",
     "https://querystudio.herokuapp.com/*"
   ],
   "permissions": [

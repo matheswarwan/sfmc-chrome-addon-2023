@@ -1,373 +1,281 @@
-console.log('Background js loaded..')
+const DEBUG = false;
+const log = (...args) => { if (DEBUG) console.log(...args); };
+
 const delay = ms => new Promise(res => setTimeout(res, ms));
-//Global
-// let memberId = '515010937'; //TODO: Change this
-let memberId = ''; //TODO: Change this
+
+// Global BU state — set on first intercepted SFMC save
+let memberId = '';
 let token = '';
 
-/* Read X-CSRF-TOKEN on Request Save */ 
-// chrome.webNavigation.onBeforeNavigate.addListener(function(){
-  chrome.webRequest.onBeforeSendHeaders.addListener(
-    function(details) {
-      // console.log('****onBeforeSendHeaders - get x-csrf-token******', details)
-      if(details.requestHeaders.length > 0) {
-        for(rh in details.requestHeaders) {
-          if(details.requestHeaders[rh].name === 'X-CSRF-Token') {
-            var item = { 'token' :  
-              {
-                'X-CSRF-Token': details.requestHeaders[rh].value,
-                'createdDate': new Date().valueOf()
-              }
-            };
-            token = item; 
-            // console.log('BUID & TOken' , memberId , token);
-            if(memberId == '') { break; }
-
-            chrome.storage.local.get(memberId, function(existingItems){
+/* ─── Capture CSRF token from outgoing request headers ─── */
+chrome.webRequest.onBeforeSendHeaders.addListener(
+  function(details) {
+    if (details.requestHeaders.length > 0) {
+      for (let rh in details.requestHeaders) {
+        if (details.requestHeaders[rh].name === 'X-CSRF-Token') {
+          var item = {
+            token: {
+              'X-CSRF-Token': details.requestHeaders[rh].value,
+              createdDate: new Date().valueOf()
+            }
+          };
+          token = item;
+          if (memberId === '') { break; }
+          chrome.storage.local.get(memberId, function(existingItems) {
+            if (existingItems[memberId]) {
               existingItems[memberId]['token'] = item.token;
-              chrome.storage.local.set(existingItems, function () {
-                // console.log('*** CSRF TOKEN *** ' , item , ' stored' )
-              });
-            });
-          }
+              chrome.storage.local.set(existingItems);
+            }
+          });
         }
       }
-    },
-    {urls: [ "https://*.marketingcloudapps.com/fuelapi/asset/v1/content/assets/*"]},
-    ["requestHeaders"]
-  )
-// },{
-//   url: [{hostContains:"marketingcloudapps.com"}]
-// }); 
-
-
-//Monitor Email Assets
-chrome.webRequest.onBeforeRequest.addListener(
-  async function(details) {
-    //Global declariations
-
-    var assetData = {}
-    var assetId = null;
-    var enterpriseId;
-
-    //Email/ cloudpage saves
-    if(details.method == 'PUT') { 
-      //console.log('PUT method')
-      // console.log(details)
-      var assetType = "Email";
-      var url = details.url;
-      assetId = url.substring(
-        url.indexOf('/asset/v1/content/assets/') + '/asset/v1/content/assets/'.length
-        , url.length)
-      var statusCode = details.statusCode;
-      var timeStamp = details.timeStamp;
-      var bytesArray = new Uint8Array(details.requestBody.raw[0].bytes); 
-      var stringArray = utf8ArrayToString(bytesArray);
-      putBody = stringArray;
-
-      putJson = JSON.parse(putBody);
-      var name = putJson.name; 
-      var folderName = putJson.category.name; 
-      var folderId = putJson.category.id; 
-      enterpriseId = putJson.enterpriseId;
-      enterpriseId = enterpriseId + ''; //Convert to String; Json key only accepts Strings.
-      memberId = putJson.memberId + '';
-
-      /*Save to storage */
-      assetData['body']= putBody;
-      assetData['folderId']= folderId;
-      assetData['folderName']= folderName;
-      assetData['name']= name;
-      assetData['timeStamp']= timeStamp;
-      assetData['url']= url;
-      assetData['assetId']= putJson.id;
-      assetData['customerKey']= putJson.customerKey;
-      assetData['memberId']= memberId;
-      assetData['compiledHtml'] = compile(putJson, "email");
-
-      let isDuplicateEmail = await isDuplicateRequestEmailRequest(memberId, assetData['compiledHtml']);
-      if(isDuplicateEmail || memberId == '' || memberId.length == 0) 
-      {
-        console.info('Duplicate save request; not saved')
-      } 
-      else 
-      {
-        console.info('Save request processed')
-        saveToLocal(memberId, assetType, assetId, assetData);
-        await setCurrentBUID(memberId);
-      }
-      
-
-
-    } else if(details.method == 'PATCH') { //TODO: Not used, i guess
-      var type = "query";
-      //From url, make a GET call and in response, get queryText
-      var getEndpoint = details.url; 
-      // console.log(getEndpoint)
-      /* Get - Start */
-      var csrfToken = ""//items['X-CSRF-Token'] ; //= getcsrfToken();
-      // console.log('csrfToken is ' + csrfToken);
-      requestOptions = {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          credentials: "same-origin",
-          'X-CSRF-TOKEN': csrfToken     
-        }
-      };
-      
-      fetch(getEndpoint, requestOptions)  
-        .then(function(response) {                      // first then()
-          // console.log('***THEN IN FETCH GET REQUEST.***')  
-            // console.log(response);  
-            response.json().then(
-              function(body) {
-                
-                /*Save to storage */
-                assetData['body']= body;
-                assetData['queryText']= body.queryText;
-                assetData['targetName']= body.targetName;
-                assetData['modifiedDate']= body.modifiedDate;
-                assetData['targetUpdateTypeName']= body.targetUpdateTypeName;
-                assetData['name']= body.name;
-                assetData['url']= getEndpoint;
-
-                //Only then it'll be saved
-                assetId = body.name; 
-                enterpriseId = "Query";
-                
-                // saveToLocal(enterpriseId, 'Query', assetId, assetData)
-
-                }
-              );
-
-        }) ;
-      /* Get - End */       
     }
-    else if(details.method == 'POST' && details.url.indexOf('querystudio.herokuapp.com/query/create') > -1 ) {
-      // console.log('Query studio post request  -- check for header ' , details);
-      //debugger;
-      var assetData = {};
-      var url = details.url;
-      var statusCode = details.statusCode;
-      var timeStamp = details.timeStamp;
-      // console.log(url,statusCode,timeStamp);
-      var bytesArray = new Uint8Array(details.requestBody.raw[0].bytes); 
-      var stringArray = utf8ArrayToString(bytesArray);
-      postBody = stringArray;
-
-      postJson = JSON.parse(postBody);
-      // console.log(postJson);
-      var querytext = postJson.querytext; 
-
-      /*Save to storage */
-      assetData = {};
-      assetData['body']= { 'querytext': querytext };
-      assetData['timeStamp']= timeStamp;
-      assetData['url']= url;
-      
-      if(memberId == '' || memberId.length == 0) {
-        saveToLocal('0', 'query_studio', timeStamp, assetData);
-      } else {
-        saveToLocal(memberId, 'query_studio', timeStamp, assetData);
-      }
-        
-      
-    }//if patch ends
-
   },
-  { 
-    urls: [  "https://*.marketingcloudapps.com/fuelapi/asset/v1/content/assets/*" //to save email/ cloudpage assets
-            ,"https://*.marketingcloudapps.com/AutomationStudioFuel3/fuelapi/automation/v1/queries/*" //To save sql activities
-            ,"https://querystudio.herokuapp.com/query/create" //Query studio activity
-          ]
-  },
-  ['requestBody',chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS].filter(Boolean) 
+  { urls: ['https://*.marketingcloudapps.com/fuelapi/asset/v1/content/assets/*'] },
+  ['requestHeaders']
 );
 
 
-/* To read Request header of query studio */ 
-// chrome.webNavigation.onBeforeNavigate.addListener(function(){
-//   chrome.webRequest.onBeforeSendHeaders.addListener(
-//     function(details) {
-//       console.log('****onBeforeSendHeaders - check header ******')
-//       console.log(details);
-//       if(details.requestHeaders.length > 0) {
-//         for(rh in details.requestHeaders) {
-//           if(details.requestHeaders[rh].name === 'X-CSRF-Token') {
-//             var t = { 'X-CSRF-Token' : details.requestHeaders[rh].value}
-//             chrome.storage.local.set(t, function () {
-//               //console.log('*** CSRF TOKEN *** ' + t['X-CSRF-Token'] + ' stored' )
-//             })
-//           }
-//         }
-//       }
-//     },
-//     {urls: [ "https://querystudio.herokuapp.com/query/create" ]},
-//     ["requestHeaders"]
-//   )
-// },{
-//   url: [{hostContains:"herokuapp.com"}]
-// }); 
+/* ─── Capture Email / CloudPage PUT saves + Automation Studio PATCH + Query Studio POST ─── */
+chrome.webRequest.onBeforeRequest.addListener(
+  async function(details) {
+
+    /* ── Email / CloudPage PUT ── */
+    if (details.method === 'PUT') {
+      let assetData = {};
+      let url = details.url;
+      let assetId = url.substring(
+        url.indexOf('/asset/v1/content/assets/') + '/asset/v1/content/assets/'.length
+      );
+      let timeStamp = details.timeStamp;
+
+      if (!details.requestBody || !details.requestBody.raw || !details.requestBody.raw[0]) {
+        log('PUT: no request body, skipping');
+        return;
+      }
+
+      let bytesArray = new Uint8Array(details.requestBody.raw[0].bytes);
+      let putBody = utf8ArrayToString(bytesArray);
+      let putJson;
+      try {
+        putJson = JSON.parse(putBody);
+      } catch (e) {
+        log('PUT: failed to parse body JSON', e);
+        return;
+      }
+
+      let name = putJson.name;
+      let folderName = putJson.category ? putJson.category.name : '';
+      let folderId = putJson.category ? putJson.category.id : null;
+      memberId = String(putJson.memberId || '');
+
+      assetData.body = putBody;
+      assetData.folderId = folderId;
+      assetData.folderName = folderName;
+      assetData.name = name;
+      assetData.timeStamp = timeStamp;
+      assetData.url = url;
+      assetData.assetId = putJson.id;
+      assetData.customerKey = putJson.customerKey;
+      assetData.memberId = memberId;
+      assetData.compiledHtml = compile(putJson, 'email');
+
+      let isDuplicateEmail = await isDuplicateRequestEmailRequest(memberId, assetData.compiledHtml);
+      if (isDuplicateEmail || memberId === '') {
+        log('Duplicate or no memberId — not saved');
+      } else {
+        log('Email save captured');
+        saveToLocal(memberId, 'email', assetId, assetData);
+        await setCurrentBUID(memberId);
+      }
+
+    /* ── Automation Studio SQL PATCH ── */
+    } else if (details.method === 'PATCH') {
+      let getEndpoint = details.url;
+      let csrfHeader = (token && token.token) ? token.token['X-CSRF-Token'] : '';
+
+      let requestOptions = {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          credentials: 'same-origin',
+          'X-CSRF-TOKEN': csrfHeader
+        }
+      };
+
+      fetch(getEndpoint, requestOptions)
+        .then(function(response) {
+          return response.json();
+        })
+        .then(function(body) {
+          let assetData = {};
+          assetData.body = body;
+          assetData.queryText = body.queryText || '';
+          assetData.targetName = body.targetName || '';
+          assetData.modifiedDate = body.modifiedDate || '';
+          assetData.targetUpdateTypeName = body.targetUpdateTypeName || '';
+          assetData.name = body.name || '';
+          assetData.url = getEndpoint;
+          assetData.timeStamp = new Date().valueOf();
+          assetData.id = body.name || String(Date.now());
+          assetData.favourite = false;
+
+          let buId = memberId === '' ? '0' : memberId;
+          saveToLocal(buId, 'automation_studio', body.name, assetData);
+        })
+        .catch(function(e) {
+          log('PATCH GET failed', e);
+        });
+
+    /* ── Query Studio POST ── */
+    } else if (details.method === 'POST' && details.url.indexOf('querystudio.herokuapp.com/query/create') > -1) {
+      if (!details.requestBody || !details.requestBody.raw || !details.requestBody.raw[0]) {
+        log('POST: no request body, skipping');
+        return;
+      }
+
+      let url = details.url;
+      let timeStamp = details.timeStamp;
+      let bytesArray = new Uint8Array(details.requestBody.raw[0].bytes);
+      let postBody = utf8ArrayToString(bytesArray);
+      let postJson;
+      try {
+        postJson = JSON.parse(postBody);
+      } catch (e) {
+        log('POST: failed to parse body JSON', e);
+        return;
+      }
+
+      let querytext = postJson.querytext || '';
+      let assetData = {
+        id: String(timeStamp),
+        body: { querytext: querytext },
+        name: '',        // user-editable label; defaults empty (shown as timestamp in UI)
+        timeStamp: timeStamp,
+        url: url,
+        favourite: false
+      };
+
+      let buId = memberId === '' ? '0' : memberId;
+      saveToLocal(buId, 'query_studio', timeStamp, assetData);
+    }
+  },
+  {
+    urls: [
+      'https://*.marketingcloudapps.com/fuelapi/asset/v1/content/assets/*',
+      'https://*.marketingcloudapps.com/AutomationStudioFuel3/fuelapi/automation/v1/queries/*',
+      'https://querystudio.herokuapp.com/query/create'
+    ]
+  },
+  ['requestBody', chrome.webRequest.OnBeforeSendHeadersOptions
+    ? chrome.webRequest.OnBeforeSendHeadersOptions.EXTRA_HEADERS
+    : undefined
+  ].filter(Boolean)
+);
 
 
-//Global Functions 
+/* ─── Storage helpers ─── */
 
-async function changeIcon() { 
-    //Update icon to show something is saved
-    chrome.action.setIcon({ path:  "./images/get_started48_recording.png" });
-    await delay(5000);
-    chrome.action.setIcon({ path:  "./images/get_started48.png" });
+function saveToLocal(buId, assetType, assetId, assetData) {
+  changeIcon();
+  if (assetId == null) { return; }
+
+  chrome.storage.local.get(buId, function(items) {
+    if (items[buId]) {
+      // BU already exists — append to the correct array
+      let bu = items[buId];
+      if (assetType === 'email' && Array.isArray(bu.email)) {
+        bu.email.push(assetData);
+      } else if (assetType === 'query_studio' && Array.isArray(bu.query_studio)) {
+        bu.query_studio.push(assetData);
+      } else if (assetType === 'automation_studio' && Array.isArray(bu.automation_studio)) {
+        bu.automation_studio.push(assetData);
+      }
+      chrome.storage.local.set(items, function() {
+        log('Updated existing BU', buId, assetType);
+      });
+    } else {
+      // First save for this BU — initialise all arrays
+      let newBU = {};
+      newBU[buId] = {
+        email: [],
+        query_studio: [],
+        cloud_pages: [],
+        automation_studio: []
+      };
+      if (assetType === 'email') {
+        newBU[buId].email.push(assetData);
+      } else if (assetType === 'query_studio') {
+        newBU[buId].query_studio.push(assetData);
+      } else if (assetType === 'automation_studio') {
+        newBU[buId].automation_studio.push(assetData);
+      }
+      chrome.storage.local.set(newBU, function() {
+        log('Initialised new BU', buId, assetType);
+      });
+    }
+  });
 }
 
-function saveToLocal(memberId, assetType, assetId,assetData) {
-  changeIcon();
-  // console.log('SaveToLocal - Asset id - ' + assetId + ' - memberId - ' + memberId)
-  // console.log(assetData)
-  /* Save to storage */
-  if(assetId == null) { 
-    //typeof assetId === 'undefined'
-    // console.log("No saves needed.")
-  }else {
-    // console.log(memberId);
-    chrome.storage.local.get(memberId, function(items){
-      console.log(items);
-      if(Object.keys(items).length > 0) { 
-        if(assetType == 'Email' && Object.keys(items[memberId]['email']).length > -1) {
-          items[memberId]['email'].push(assetData);
-          console.log('Emali Items already found. updaed item ' , items , ' with asset data ' , assetData)
-          chrome.storage.local.set(items, function() {
-            console.log('New item stored');
-            console.log(items)
-          });
-        } else if(assetType == 'query_studio') {
-          //Query studio key exists - so store there.
-          items[memberId]['query_studio'].push(assetData);
-          // console.log('Query studio Items already found. updaed item ' , items , ' with asset data ' , assetData)
-          chrome.storage.local.set(items, function() {
-            // console.log('New item stored');
-            // console.log(items)
-          });
+async function changeIcon() {
+  chrome.action.setIcon({ path: './images/get_started48_recording.png' });
+  await delay(5000);
+  chrome.action.setIcon({ path: './images/get_started48.png' });
+}
 
-        }
-      }else{
-        //Else means, no emails were saved previously for this BU. So, save it as new one;
-        if(assetType == 'Email')
-        {
-          var newBUItem = {} 
-          newBUItem[memberId] = {};
-          
-          newBUItem[memberId]['email'] = [];
-          newBUItem[memberId]['query_studio'] = [];
-          newBUItem[memberId]['cloud_pages'] = [];
-          newBUItem[memberId]['automation_studio'] = [];
-
-          newBUItem[memberId]['email'].push(assetData);
-          chrome.storage.local.set(newBUItem, function() {
-            // console.log('New item stored')
-            // console.log(newBUItem)
-          });
-        }
-        else if (assetType == 'query_studio') 
-        {
-          //Query studio key does not exist- so , store new
-          var newBUItem = {} 
-          newBUItem[memberId] = {};
-          
-          newBUItem[memberId]['email'] = [];
-          newBUItem[memberId]['query_studio'] = [];
-          newBUItem[memberId]['cloud_pages'] = [];
-          newBUItem[memberId]['automation_studio'] = [];
-
-          newBUItem[memberId]['query_studio'].push(assetData);
-          chrome.storage.local.set(newBUItem, function() {
-            // console.log('New query_studio item stored')
-            // console.log(newBUItem)
-          });
-          // chrome.storage.local.get(memberId, function(qsItems) { 
-          //   console.log('QS items fetched ' , qsItems)
-          //   if(Object.keys(qsItems).length === 0) { 
-          //     qsItems = {};
-          //     qsItems['QueryStudioItems'] = [];
-          //   } //MKTODO
-          //   console.log(qsItems);
-          //   qsItems['QueryStudioItems'].push( assetData );
-          //   chrome.storage.local.set(qsItems, function() {
-          //     console.log('New Query item stored')
-          //     console.log(qsItems)
-          //   }); 
-          // });
+async function isDuplicateRequestEmailRequest(buId, compiledHtml) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(null, function(items) {
+      if (items[buId] && Array.isArray(items[buId].email)) {
+        for (let i = 0; i < items[buId].email.length; i++) {
+          if (items[buId].email[i].compiledHtml === compiledHtml) {
+            resolve(true);
+            return;
+          }
         }
       }
+      resolve(false);
     });
-  }
+  });
+}
+
+async function setCurrentBUID(currentBuid) {
+  return new Promise((resolve) => {
+    let lastAccessedBU = {
+      lastAccessed: { buid: currentBuid, time: new Date().valueOf() }
+    };
+    chrome.storage.local.set(lastAccessedBU, function() {
+      log('lastAccessedBU saved', lastAccessedBU);
+      resolve(true);
+    });
+  });
 }
 
 
+/* ─── UTF-8 byte array decoder ─── */
 function utf8ArrayToString(aBytes) {
-  var sView = "";
-  
+  var sView = '';
   for (var nPart, nLen = aBytes.length, nIdx = 0; nIdx < nLen; nIdx++) {
-      nPart = aBytes[nIdx];
-      
-      sView += String.fromCharCode(
-          nPart > 251 && nPart < 254 && nIdx + 5 < nLen ? /* six bytes */
-              /* (nPart - 252 << 30) may be not so safe in ECMAScript! So...: */
-              (nPart - 252) * 1073741824 + (aBytes[++nIdx] - 128 << 24) + (aBytes[++nIdx] - 128 << 18) + (aBytes[++nIdx] - 128 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
-          : nPart > 247 && nPart < 252 && nIdx + 4 < nLen ? /* five bytes */
-              (nPart - 248 << 24) + (aBytes[++nIdx] - 128 << 18) + (aBytes[++nIdx] - 128 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
-          : nPart > 239 && nPart < 248 && nIdx + 3 < nLen ? /* four bytes */
-              (nPart - 240 << 18) + (aBytes[++nIdx] - 128 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
-          : nPart > 223 && nPart < 240 && nIdx + 2 < nLen ? /* three bytes */
-              (nPart - 224 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
-          : nPart > 191 && nPart < 224 && nIdx + 1 < nLen ? /* two bytes */
-              (nPart - 192 << 6) + aBytes[++nIdx] - 128
-          : /* nPart < 127 ? */ /* one byte */
-              nPart
-      );
+    nPart = aBytes[nIdx];
+    sView += String.fromCharCode(
+      nPart > 251 && nPart < 254 && nIdx + 5 < nLen ?
+        (nPart - 252) * 1073741824 + (aBytes[++nIdx] - 128 << 24) + (aBytes[++nIdx] - 128 << 18) + (aBytes[++nIdx] - 128 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
+      : nPart > 247 && nPart < 252 && nIdx + 4 < nLen ?
+        (nPart - 248 << 24) + (aBytes[++nIdx] - 128 << 18) + (aBytes[++nIdx] - 128 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
+      : nPart > 239 && nPart < 248 && nIdx + 3 < nLen ?
+        (nPart - 240 << 18) + (aBytes[++nIdx] - 128 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
+      : nPart > 223 && nPart < 240 && nIdx + 2 < nLen ?
+        (nPart - 224 << 12) + (aBytes[++nIdx] - 128 << 6) + aBytes[++nIdx] - 128
+      : nPart > 191 && nPart < 224 && nIdx + 1 < nLen ?
+        (nPart - 192 << 6) + aBytes[++nIdx] - 128
+      : nPart
+    );
   }
   return sView;
 }
 
-async function isDuplicateRequestEmailRequest(memberId,compiledHtml) { 
-  return new Promise((resolve, reject) => {
-    var isDuplicate = false; 
-    chrome.storage.local.get(null, function(items) {
-      // console.log(Object.keys(items), Object.keys(items[memberId]) )
-      if(Object.keys(items).includes(memberId)) 
-      { 
-        if(Object.keys(items[memberId]).includes('email')) 
-        {
-          for(i in items[memberId]['email']) {
-            // console.log('Is duplicate request')
-            // console.log(items[memberId]['email'][i]['compiledHtml'])
-            if(items[memberId]['email'][i]['compiledHtml'] == compiledHtml ) {
-              isDuplicate = true; 
-              resolve(isDuplicate);
-              break;
-            }
-          }
-        }
-      }
-      resolve(isDuplicate);
-    });
-  });
-}
 
-
-async function setCurrentBUID(currentBuid) {
-  return new Promise( (resolve, reject) => {
-    var lastAccessedBU = { 
-      'lastAccessed' : { 'buid' : currentBuid, 'time' : new Date().valueOf() } 
-    }
-    chrome.storage.local.set(lastAccessedBU, function(){
-      console.log('lastAccessedBU saved ' , lastAccessedBU );
-      resolve(true);
-    })
-  });
-}
-
-/* SF CONTENT RENDERING METHOD - START */
+/* ─── SF Content rendering (shared with index.js — keep in sync) ─── */
 function getReferences(content, type) {
   var typeMarker = '<div data-type="' + type + '" data-key="';
   var splitContent = content.split(typeMarker);
@@ -375,7 +283,7 @@ function getReferences(content, type) {
   if (splitContent.length > 1) {
     for (var i = 1; i < splitContent.length; i++) {
       var endTagMatches = splitContent[i].match(/(\/>)|(>[^<]*<\/div>)/i);
-      var match = endTagMatches[0] || ">";
+      var match = endTagMatches[0] || '>';
       results.push(typeMarker + splitContent[i].split(match)[0] + match);
     }
   }
@@ -386,17 +294,13 @@ function compile(asset, channel) {
   asset = asset || {};
   var content = asset.superContent || asset.content || asset.design;
   if (content) {
-    ["slot", "block"].forEach(function (type) {
+    ['slot', 'block'].forEach(function(type) {
       var references = getReferences(content, type);
-      var types = type + "s";
-      references.forEach(function (reference) {
+      var types = type + 's';
+      references.forEach(function(reference) {
         var refKey = reference.split('data-key="')[1].split('"')[0];
         if (asset[types] && asset[types][refKey]) {
           content = content.replace(reference, compile(asset[types][refKey]));
-        } else {
-          console.error(
-            "Bad Asset: referenced " + type + " does not exist: " + refKey
-          );
         }
       });
     });
@@ -408,8 +312,5 @@ function compile(asset, channel) {
       return compile(asset.views.html, channel);
     }
   }
-  return "";
+  return '';
 }
-/* SF CONTENT RENDERING METHOD - END */
-
-
