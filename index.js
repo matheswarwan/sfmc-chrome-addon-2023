@@ -493,11 +493,17 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
     );
   });
 
-  // Run query — full 4-step Query Studio flow from HAR:
-  //   1. POST /query/create          → { isCreated, querydefinitionid }
-  //   2. POST /query/:id/start       → { isStarted }
-  //   3. GET  /query/:id/isrunning   → { isrunning } — poll until false
-  //   4. GET  /query/results?p=1     → HTML (already SLDS-styled)
+  // Run query — SFMC internal API flow (replaces querystudio.herokuapp.com):
+  //   1. POST /AutomationStudioFuel3/fuelapi/automation/v1/queries/   → create query activity
+  //   2. POST /...queries/{id}/actions/start/                          → start execution
+  //   3. GET  /...queries/{id}/actions/isrunning/  (poll)             → wait for completion
+  //   4. GET  /fuelapi/data/v1/customobjectdata/key/{key}/rowset      → paginate all rows
+  //   5. DELETE /...queries/{id}                                       → cleanup activity
+  //
+  // Auth: X-CSRF-Token + session cookies (same as email revert). No OAuth needed.
+  // The target DE must be pre-created by the user and its customer key stored in
+  // chrome.storage.local under the key 'sfmcQueryResultsDEKey'.
+  // If no DE key is configured, the runner prompts the user to set one up.
   $('.ck-run-query-btn').off('click').on('click', async function() {
     let sql = sqlEditor.getValue().trim();
     if (!sql) {
@@ -505,57 +511,105 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
       return;
     }
 
-    let $btn = $(this);
+    let $btn     = $(this);
     let $results = $('.ck-query-results');
 
-    const QS = 'https://querystudio.herokuapp.com';
-    // Headers matching the real Query Studio XHR calls
-    const JSON_HEADERS = {
-      'Accept': 'application/json, text/javascript, */*; q=0.01',
-      'Content-Type': 'application/json',
-      'x-requested-with': 'XMLHttpRequest'
-    };
-    const MAX_POLLS   = 72;   // ~6 min at 5 s intervals
-    const POLL_MS     = 5000;
+    const MAX_POLLS = 72;   // ~6 min at 5 s intervals
+    const POLL_MS   = 5000;
 
     function setStatus(msg) {
       $results.html(`<p style="color:#888;font-style:italic">${escapeHtml(msg)}</p>`);
     }
 
-    $btn.prop('disabled', true).text('Creating…');
+    $btn.prop('disabled', true).text('Preparing…');
 
     try {
-      // ── Step 1: Create query activity ──────────────────────────────
+      // ── Resolve base URL and CSRF token ───────────────────────────
+      let csrfToken = await getcsrfToken().catch(() => null);
+      if (!csrfToken) {
+        throw new Error(GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_TOKEN);
+      }
+
+      // Derive the instance base URL from the most recently stored email URL,
+      // falling back to the Automation Studio URL captured in query saves.
+      let instanceBase = await getSfmcInstanceBase();
+      if (!instanceBase) {
+        throw new Error('Cannot determine SFMC instance URL. Please save an email or SQL query in SFMC first so the extension can detect your instance.');
+      }
+
+      const AS_BASE   = instanceBase + '/AutomationStudioFuel3/fuelapi/automation/v1/queries';
+      const DATA_BASE = instanceBase + '/fuelapi/data/v1/customobjectdata';
+      const JSON_HDRS = {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': csrfToken
+      };
+
+      // ── Resolve target DE customer key ────────────────────────────
+      let deKey = await new Promise(resolve =>
+        chrome.storage.local.get('sfmcQueryResultsDEKey', d => resolve(d.sfmcQueryResultsDEKey || null))
+      );
+      if (!deKey) {
+        $results.html(`
+          <div style="padding:16px;">
+            <p><strong>One-time setup required.</strong></p>
+            <p>To run queries directly via SFMC, you need a pre-created <strong>Data Extension</strong>
+            that the extension will use to store query results. Create a DE in SFMC with at least
+            one Text field, then paste its <strong>Customer Key</strong> below.</p>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+              <input id="ck-de-key-input" class="slds-input" placeholder="DE Customer Key (e.g. abc-123-def)" style="flex:1">
+              <button id="ck-de-key-save" class="slds-button slds-button_brand">Save &amp; Run</button>
+            </div>
+          </div>`);
+        $btn.prop('disabled', false).text('▶ Run');
+        $('#ck-de-key-save').on('click', async function() {
+          let k = $('#ck-de-key-input').val().trim();
+          if (!k) { return; }
+          await new Promise(r => chrome.storage.local.set({ sfmcQueryResultsDEKey: k }, r));
+          showToastMessage(GLOBAL.TOAST.SUCCESS, 'DE key saved. Click ▶ Run again.');
+        });
+        return;
+      }
+
+      // ── Step 1: Create a temporary query activity ─────────────────
       setStatus('Creating query activity…');
-      let createRes = await fetch(QS + '/query/create', {
+      $btn.text('Creating…');
+      let activityName = 'sfmc_ext_' + Date.now();
+      let createRes = await fetch(AS_BASE + '/', {
         method: 'POST',
-        headers: JSON_HEADERS,
+        headers: JSON_HDRS,
         credentials: 'include',
-        body: JSON.stringify({ querytext: sql })
+        body: JSON.stringify({
+          name: activityName,
+          key: generateUUID(),
+          description: 'Temporary — created by SFMC Revert Changes extension. Safe to delete.',
+          queryText: sql,
+          targetName: deKey,   // SFMC also accepts customer key as targetName
+          targetKey:  deKey,
+          targetUpdateTypeId:   0,
+          targetUpdateTypeName: 'Overwrite',
+          categoryId: 0
+        })
       });
       if (!createRes.ok) {
-        throw new Error('Create failed (HTTP ' + createRes.status + ')');
+        let errText = await createRes.text().catch(() => '');
+        throw new Error('Failed to create query activity (HTTP ' + createRes.status + '). ' + errText);
       }
       let createData = await createRes.json();
-      if (!createData.isCreated || !createData.querydefinitionid) {
-        throw new Error('Unexpected create response: ' + JSON.stringify(createData));
+      let queryId = createData.queryDefinitionId || createData.queryDefinitionID || createData.id;
+      if (!queryId) {
+        throw new Error('Query activity created but no ID returned: ' + JSON.stringify(createData));
       }
-      let queryId = createData.querydefinitionid;
 
       // ── Step 2: Start execution ────────────────────────────────────
-      $btn.text('Starting…');
       setStatus('Starting query execution…');
-      let startRes = await fetch(QS + '/query/' + queryId + '/start', {
+      $btn.text('Starting…');
+      let startRes = await fetch(AS_BASE + '/' + queryId + '/actions/start/', {
         method: 'POST',
-        headers: JSON_HEADERS,
+        headers: JSON_HDRS,
         credentials: 'include'
       });
       if (!startRes.ok) {
-        throw new Error('Start failed (HTTP ' + startRes.status + ')');
-      }
-      let startData = await startRes.json();
-      if (!startData.isStarted) {
-        throw new Error('Query failed to start: ' + JSON.stringify(startData));
+        throw new Error('Failed to start query (HTTP ' + startRes.status + ')');
       }
 
       // ── Step 3: Poll until complete ────────────────────────────────
@@ -564,41 +618,74 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
       let isRunning = true;
       while (isRunning) {
         if (polls >= MAX_POLLS) {
-          throw new Error('Query timed out after ' + (MAX_POLLS * POLL_MS / 1000) + 's. Try Open in Query Studio.');
+          throw new Error('Query timed out after ' + (MAX_POLLS * POLL_MS / 1000) + 's.');
         }
         await new Promise(r => setTimeout(r, POLL_MS));
         polls++;
         setStatus('Running… (' + (polls * POLL_MS / 1000) + 's elapsed)');
 
-        let pollRes = await fetch(QS + '/query/' + queryId + '/isrunning', {
+        let pollRes = await fetch(AS_BASE + '/' + queryId + '/actions/isrunning/', {
           method: 'GET',
-          headers: JSON_HEADERS,
+          headers: JSON_HDRS,
           credentials: 'include'
         });
         if (!pollRes.ok) {
           throw new Error('Status check failed (HTTP ' + pollRes.status + ')');
         }
         let pollData = await pollRes.json();
-        isRunning = pollData.isrunning;
+        // Field name varies across SFMC versions — check all known variants
+        isRunning = pollData.isRunning ?? pollData.isrunning ?? false;
       }
 
-      // ── Step 4: Fetch results (returns SLDS HTML, not JSON) ────────
-      $btn.text('Fetching results…');
+      // ── Step 4: Paginate all rows from the results DE ─────────────
+      $btn.text('Fetching…');
       setStatus('Query complete — fetching results…');
-      let resultsRes = await fetch(QS + '/query/results?p=1', {
-        method: 'GET',
-        headers: {
-          'Accept': '*/*',
-          'x-requested-with': 'XMLHttpRequest'
-        },
-        credentials: 'include'
-      });
-      if (!resultsRes.ok) {
-        throw new Error('Results fetch failed (HTTP ' + resultsRes.status + ')');
+      let allRows = [];
+      let page    = 1;
+      const PAGE_SIZE = 2500;
+      while (true) {
+        let rowsRes = await fetch(
+          DATA_BASE + '/key/' + deKey + '/rowset?$pageSize=' + PAGE_SIZE + '&$page=' + page,
+          { method: 'GET', headers: JSON_HDRS, credentials: 'include' }
+        );
+        if (!rowsRes.ok) {
+          throw new Error('Failed to fetch results page ' + page + ' (HTTP ' + rowsRes.status + ')');
+        }
+        let rowsData = await rowsRes.json();
+        let items = rowsData.items || [];
+        allRows = allRows.concat(items);
+        // Stop when we get a partial page (no more data)
+        if (items.length < PAGE_SIZE) { break; }
+        page++;
       }
-      let resultsHtml = await resultsRes.text();
-      // Results arrive as a pre-styled SLDS table — inject directly
-      $results.html(resultsHtml);
+
+      // ── Step 5: Clean up the query activity ───────────────────────
+      fetch(AS_BASE + '/' + queryId, {
+        method: 'DELETE',
+        headers: JSON_HDRS,
+        credentials: 'include'
+      }).catch(() => {}); // fire-and-forget; non-critical
+
+      // ── Render results as an SLDS data table ──────────────────────
+      if (allRows.length === 0) {
+        $results.html('<p style="color:#888">Query returned no rows.</p>');
+      } else {
+        // Columns come from the first row's values object keys
+        let cols = Object.keys(allRows[0].values || {});
+        let thead = '<tr>' + cols.map(c => `<th class="slds-text-title_caps" scope="col" style="white-space:nowrap">${escapeHtml(c)}</th>`).join('') + '</tr>';
+        let tbody = allRows.map(row => {
+          let vals = row.values || {};
+          return '<tr>' + cols.map(c => `<td>${escapeHtml(vals[c] == null ? '' : String(vals[c]))}</td>`).join('') + '</tr>';
+        }).join('');
+        $results.html(`
+          <p style="color:#888;margin-bottom:6px">${allRows.length.toLocaleString()} row(s) returned</p>
+          <div style="overflow:auto;">
+            <table class="slds-table slds-table_cell-buffer slds-table_bordered slds-table_striped" style="font-size:12px">
+              <thead>${thead}</thead>
+              <tbody>${tbody}</tbody>
+            </table>
+          </div>`);
+      }
 
     } catch (e) {
       $results.html('<p style="color:#c23934"><strong>Error:</strong> ' + escapeHtml(e.message) + '</p>');
@@ -904,6 +991,40 @@ function escapeHtml(str) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// Extracts the SFMC instance base URL (e.g. "https://mc123.marketingcloudapps.com")
+// from the most recently stored email URL or automation studio URL in storage.
+async function getSfmcInstanceBase() {
+  let d = await getData();
+  let buKeys = Object.keys(d).filter(k => k !== 'lastAccessed' && k !== 'token');
+  for (let b of buKeys) {
+    let emails = (d[b] && d[b].email) ? d[b].email : [];
+    for (let e of emails) {
+      if (e.url) {
+        try {
+          return new URL(e.url).origin;
+        } catch (_) {}
+      }
+    }
+    let as = (d[b] && d[b].automation_studio) ? d[b].automation_studio : [];
+    for (let a of as) {
+      if (a.url) {
+        try {
+          return new URL(a.url).origin;
+        } catch (_) {}
+      }
+    }
+  }
+  return null;
+}
+
+// RFC 4122 v4 UUID — used as the query activity external key
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    let r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
 }
 
 

@@ -246,3 +246,187 @@ Do **not** introduce npm/yarn/pnpm or a bundler unless specifically asked. Updat
 - **Async patterns**: The codebase uses `async/await` with `new Promise` wrappers around Chrome callback APIs. Follow this pattern when adding new Chrome API calls.
 - **No ES modules**: All JS is loaded as plain `<script>` tags. Do not use `import`/`export`.
 - **Global state** in `index.js`: `currentBuid`, `buids`, `data`, and `loadUICount` are module-level globals. Be aware of their lifecycle across `loadUI()` calls.
+
+---
+
+## Issue #4 — Query Runner: Replace Query Studio with SFMC Internal APIs
+
+### Problem
+
+The current query runner (`showQueryStudioPreview` in `index.js`) pipes SQL through `https://querystudio.herokuapp.com`. The results endpoint (`GET /query/results?p=1`) only returns the first page of HTML — multi-page result sets are silently truncated. There is no reliable way to paginate through all results with the current approach.
+
+### Proposed Strategy
+
+Replace the Query Studio 4-step flow with a direct SFMC internal API flow:
+
+1. **Create a temporary Data Extension** to hold query results (columns/types inferred from query output)
+2. **Create a Query Activity** targeting that DE
+3. **Start the query** and poll until complete
+4. **Read all rows from the DE** with proper pagination (up to 2500 rows/page)
+5. **Delete the temporary DE** after results are displayed
+
+All calls use the same auth as existing extension API calls: **X-CSRF-Token + browser session cookies** (no OAuth required). The base URL is extracted from the instance URL already stored in captured email/query data.
+
+### Auth Model
+
+| API surface | Base URL | Auth |
+|---|---|---|
+| Internal FuelAPI proxy | `https://{instance}.marketingcloudapps.com/fuelapi/...` | X-CSRF-Token + cookies |
+| Automation Studio FuelAPI | `https://{instance}.marketingcloudapps.com/AutomationStudioFuel3/fuelapi/...` | X-CSRF-Token + cookies |
+| Public REST API | `https://{subdomain}.rest.marketingcloudapis.com/...` | OAuth Bearer — **do not use** |
+
+The extension must never introduce OAuth. All API calls must go through the FuelAPI proxy domain using the captured CSRF token.
+
+### API Endpoints — Certainty Levels
+
+| Step | Method | Path (relative to instance base URL) | Certainty |
+|---|---|---|---|
+| Create temp DE | `POST` | `/fuelapi/data/v1/customobjectdata/` | ⚠️ Needs validation — see below |
+| Create query activity | `POST` | `/AutomationStudioFuel3/fuelapi/automation/v1/queries/` | ✅ Domain confirmed by existing interceptor |
+| Start query | `POST` | `/AutomationStudioFuel3/fuelapi/automation/v1/queries/{id}/actions/start/` | ⚠️ Needs validation |
+| Poll status | `GET` | `/AutomationStudioFuel3/fuelapi/automation/v1/queries/{id}/actions/isrunning/` | ⚠️ Needs validation |
+| Read DE rows | `GET` | `/fuelapi/data/v1/customobjectdata/key/{key}/rowset?$pageSize=2500&$page=N` | ⚠️ Needs validation |
+| Delete temp DE | `DELETE` | `/fuelapi/data/v1/customobjectdata/{id}` | ⚠️ Needs validation |
+
+#### Create Query Activity — Request Body
+
+```json
+{
+  "name": "sfmc_ext_{timestamp}",
+  "key": "{UUID}",
+  "description": "Temporary — created by SFMC Revert Changes extension",
+  "queryText": "<user SQL>",
+  "targetName": "<temp DE name>",
+  "targetKey":  "<temp DE customerKey>",
+  "targetUpdateTypeId": 0,
+  "targetUpdateTypeName": "Overwrite",
+  "categoryId": 0
+}
+```
+
+Response contains `queryDefinitionId` used in subsequent calls.
+
+#### DE Row Read — Pagination
+
+```
+GET /fuelapi/data/v1/customobjectdata/key/{deKey}/rowset?$pageSize=2500&$page=1
+```
+
+Response shape:
+```json
+{
+  "count": 12500,
+  "items": [ { "keys": {}, "values": {} }, ... ],
+  "links": { "next": "...?$page=2" }
+}
+```
+
+Keep incrementing `$page` while `items.length === pageSize` (or while `links.next` is present). Max `$pageSize` is 2500.
+
+### Fallback Plan (if DE creation via FuelAPI is blocked)
+
+If `POST /fuelapi/data/v1/customobjectdata/` returns 401/403 (CSRF auth rejected for DE creation), the user pre-creates a single **permanent results DE** in SFMC with a known customer key, and the extension:
+- Stores the customer key in `chrome.storage.local` (user configures it once in extension settings)
+- Always targets this DE with `targetUpdateTypeId: 0` (Overwrite) — each run replaces previous results
+- Skips the create and delete steps entirely
+
+### Browser Console Validation Scripts
+
+Run these from the **browser DevTools console** while on any `https://*.marketingcloudapps.com` page. Get your CSRF token from DevTools → Network → any recent SFMC request → `X-CSRF-Token` request header.
+
+#### Setup
+```javascript
+const BASE = window.location.origin;
+const CSRF = 'PASTE_YOUR_X-CSRF-TOKEN_HERE';
+const JSON_HDRS = { 'Content-Type': 'application/json', 'X-CSRF-Token': CSRF };
+console.log('Base:', BASE, '| Token length:', CSRF.length);
+```
+
+#### Validate Step 1 — Create Query Activity
+```javascript
+const qName = 'sfmc_ext_validate_' + Date.now();
+const r1 = await fetch(BASE + '/AutomationStudioFuel3/fuelapi/automation/v1/queries/', {
+  method: 'POST', headers: JSON_HDRS, credentials: 'include',
+  body: JSON.stringify({
+    name: qName, key: crypto.randomUUID(),
+    description: 'Extension validation — safe to delete',
+    queryText: 'SELECT TOP 1 SubscriberKey FROM _Subscribers',
+    targetName: 'PASTE_AN_EXISTING_DE_NAME',
+    targetKey:  'PASTE_THAT_DEs_CUSTOMER_KEY',
+    targetUpdateTypeId: 0, targetUpdateTypeName: 'Overwrite', categoryId: 0
+  })
+});
+const b1 = await r1.json();
+console.log('Step 1 status:', r1.status, '| queryDefinitionId:', b1.queryDefinitionId);
+// ✅ 200/201 + queryDefinitionId present = success
+// ❌ 401/403 = CSRF rejected on this endpoint
+```
+
+#### Validate Step 2 — Start Query
+```javascript
+const QUERY_ID = b1.queryDefinitionId; // from Step 1
+const r2 = await fetch(
+  BASE + `/AutomationStudioFuel3/fuelapi/automation/v1/queries/${QUERY_ID}/actions/start/`,
+  { method: 'POST', headers: JSON_HDRS, credentials: 'include' }
+);
+console.log('Step 2 status:', r2.status, await r2.json());
+// ✅ 200 = started
+```
+
+#### Validate Step 3 — Poll Status
+```javascript
+const r3 = await fetch(
+  BASE + `/AutomationStudioFuel3/fuelapi/automation/v1/queries/${QUERY_ID}/actions/isrunning/`,
+  { method: 'GET', headers: JSON_HDRS, credentials: 'include' }
+);
+const b3 = await r3.json();
+console.log('Step 3 status:', r3.status, b3);
+// Note the exact field name returned (isRunning vs isrunning vs status)
+```
+
+#### Validate Step 4 — Read DE Rows
+```javascript
+const DE_KEY = 'PASTE_ANY_DE_CUSTOMER_KEY';
+const r4 = await fetch(
+  BASE + `/fuelapi/data/v1/customobjectdata/key/${DE_KEY}/rowset?$pageSize=5&$page=1`,
+  { method: 'GET', headers: JSON_HDRS, credentials: 'include' }
+);
+const b4 = await r4.json();
+console.log('Step 4 status:', r4.status, '| count:', b4.count, '| items:', b4.items?.length);
+console.log('Sample item:', JSON.stringify(b4.items?.[0], null, 2));
+// ✅ 200 + items array = success — note the items[].keys / items[].values shape
+// ❌ 401 = CSRF not accepted here
+```
+
+#### Validate Step 5 — Create Temp DE (critical unknown)
+
+First, **capture the real endpoint** by opening the Network tab, manually creating a small DE in Contact Builder, then noting the exact POST URL and request body. Then also try the likely candidate:
+
+```javascript
+const deName = 'sfmc_ext_test_' + Date.now();
+const r5 = await fetch(BASE + '/fuelapi/data/v1/customobjectdata/', {
+  method: 'POST', headers: JSON_HDRS, credentials: 'include',
+  body: JSON.stringify({
+    name: deName, customerKey: deName,
+    fields: [
+      { name: 'pk',   type: 'Text', length: 254,  isPrimaryKey: true,  isNullable: false },
+      { name: 'col1', type: 'Text', length: 4000, isPrimaryKey: false, isNullable: true  }
+    ]
+  })
+});
+console.log('Step 5 status:', r5.status, await r5.text());
+// ✅ 200/201 = can create DEs with CSRF auth — full dynamic flow is possible
+// ❌ 404 = wrong path (use Network tab to find the real endpoint)
+// ❌ 401/403 = use fallback plan (pre-created DE with stored customer key)
+```
+
+### What to Record After Validation
+
+After running the scripts, note:
+
+1. **Step 1**: HTTP status + exact field name for the query ID in the response
+2. **Step 2**: HTTP status + response body shape
+3. **Step 3**: HTTP status + exact field name that indicates running state (`isRunning`, `isrunning`, `status`, etc.)
+4. **Step 4**: HTTP status + confirm `items[N].keys` / `items[N].values` shape, and whether `links.next` is present
+5. **Step 5**: HTTP status + if 404, the real DE-creation URL seen in the Network tab
+6. **DE create body**: If the Network tab reveals a different request body schema than assumed above, record it here
