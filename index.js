@@ -493,60 +493,119 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
     );
   });
 
-  // Run query against Query Studio API
+  // Run query — full 4-step Query Studio flow from HAR:
+  //   1. POST /query/create          → { isCreated, querydefinitionid }
+  //   2. POST /query/:id/start       → { isStarted }
+  //   3. GET  /query/:id/isrunning   → { isrunning } — poll until false
+  //   4. GET  /query/results?p=1     → HTML (already SLDS-styled)
   $('.ck-run-query-btn').off('click').on('click', async function() {
     let sql = sqlEditor.getValue().trim();
     if (!sql) {
       showToastMessage(GLOBAL.TOAST.ERROR, 'Please enter a SQL query.');
       return;
     }
-    $('.ck-query-results').html('<p style="color:#888">Running query…</p>');
-    $(this).prop('disabled', true);
+
+    let $btn = $(this);
+    let $results = $('.ck-query-results');
+
+    const QS = 'https://querystudio.herokuapp.com';
+    // Headers matching the real Query Studio XHR calls
+    const JSON_HEADERS = {
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Content-Type': 'application/json',
+      'x-requested-with': 'XMLHttpRequest'
+    };
+    const MAX_POLLS   = 72;   // ~6 min at 5 s intervals
+    const POLL_MS     = 5000;
+
+    function setStatus(msg) {
+      $results.html(`<p style="color:#888;font-style:italic">${escapeHtml(msg)}</p>`);
+    }
+
+    $btn.prop('disabled', true).text('Creating…');
 
     try {
-      let response = await fetch('https://querystudio.herokuapp.com/query/create', {
+      // ── Step 1: Create query activity ──────────────────────────────
+      setStatus('Creating query activity…');
+      let createRes = await fetch(QS + '/query/create', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: JSON_HEADERS,
         credentials: 'include',
         body: JSON.stringify({ querytext: sql })
       });
+      if (!createRes.ok) {
+        throw new Error('Create failed (HTTP ' + createRes.status + ')');
+      }
+      let createData = await createRes.json();
+      if (!createData.isCreated || !createData.querydefinitionid) {
+        throw new Error('Unexpected create response: ' + JSON.stringify(createData));
+      }
+      let queryId = createData.querydefinitionid;
 
-      if (!response.ok) {
-        let errText = await response.text();
-        $('.ck-query-results').html('<p style="color:red">Error: ' + escapeHtml(errText) + '</p>');
-        return;
+      // ── Step 2: Start execution ────────────────────────────────────
+      $btn.text('Starting…');
+      setStatus('Starting query execution…');
+      let startRes = await fetch(QS + '/query/' + queryId + '/start', {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        credentials: 'include'
+      });
+      if (!startRes.ok) {
+        throw new Error('Start failed (HTTP ' + startRes.status + ')');
+      }
+      let startData = await startRes.json();
+      if (!startData.isStarted) {
+        throw new Error('Query failed to start: ' + JSON.stringify(startData));
       }
 
-      let result = await response.json();
-      renderQueryResults(result);
+      // ── Step 3: Poll until complete ────────────────────────────────
+      $btn.text('Running…');
+      let polls = 0;
+      let isRunning = true;
+      while (isRunning) {
+        if (polls >= MAX_POLLS) {
+          throw new Error('Query timed out after ' + (MAX_POLLS * POLL_MS / 1000) + 's. Try Open in Query Studio.');
+        }
+        await new Promise(r => setTimeout(r, POLL_MS));
+        polls++;
+        setStatus('Running… (' + (polls * POLL_MS / 1000) + 's elapsed)');
+
+        let pollRes = await fetch(QS + '/query/' + queryId + '/isrunning', {
+          method: 'GET',
+          headers: JSON_HEADERS,
+          credentials: 'include'
+        });
+        if (!pollRes.ok) {
+          throw new Error('Status check failed (HTTP ' + pollRes.status + ')');
+        }
+        let pollData = await pollRes.json();
+        isRunning = pollData.isrunning;
+      }
+
+      // ── Step 4: Fetch results (returns SLDS HTML, not JSON) ────────
+      $btn.text('Fetching results…');
+      setStatus('Query complete — fetching results…');
+      let resultsRes = await fetch(QS + '/query/results?p=1', {
+        method: 'GET',
+        headers: {
+          'Accept': '*/*',
+          'x-requested-with': 'XMLHttpRequest'
+        },
+        credentials: 'include'
+      });
+      if (!resultsRes.ok) {
+        throw new Error('Results fetch failed (HTTP ' + resultsRes.status + ')');
+      }
+      let resultsHtml = await resultsRes.text();
+      // Results arrive as a pre-styled SLDS table — inject directly
+      $results.html(resultsHtml);
+
     } catch (e) {
-      $('.ck-query-results').html('<p style="color:red">Network error: ' + escapeHtml(String(e)) + '</p>');
+      $results.html('<p style="color:#c23934"><strong>Error:</strong> ' + escapeHtml(e.message) + '</p>');
     } finally {
-      $('.ck-run-query-btn').prop('disabled', false);
+      $btn.prop('disabled', false).text('▶ Run');
     }
   });
-}
-
-function renderQueryResults(result) {
-  // result may be an array of row objects or { rows: [...], ... }
-  let rows = Array.isArray(result) ? result : (result.rows || result.results || result.data || []);
-  if (!Array.isArray(rows) || rows.length === 0) {
-    $('.ck-query-results').html('<p style="color:#888">Query returned no rows.</p>');
-    return;
-  }
-  let cols = Object.keys(rows[0]);
-  let headerHtml = cols.map(c => `<th style="padding:4px 8px;border:1px solid #ddd;background:#f4f4f4">${escapeHtml(c)}</th>`).join('');
-  let bodyHtml   = rows.map(row =>
-    '<tr>' + cols.map(c => `<td style="padding:4px 8px;border:1px solid #ddd">${escapeHtml(String(row[c] != null ? row[c] : ''))}</td>`).join('') + '</tr>'
-  ).join('');
-  $('.ck-query-results').html(`
-    <p style="font-size:12px;color:#888;margin-bottom:4px">${rows.length} row(s)</p>
-    <div style="overflow:auto">
-      <table style="border-collapse:collapse;font-size:12px;width:100%">
-        <thead><tr>${headerHtml}</tr></thead>
-        <tbody>${bodyHtml}</tbody>
-      </table>
-    </div>`);
 }
 
 
