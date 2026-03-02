@@ -23,6 +23,13 @@ let loadUICount   = 0;
 let data          = {};
 const allowedTokenAge = 15; // minutes
 
+/* ─── SFMC stack discovery ─── */
+const SFMC_STACK_IDS = [
+  's1', 's4', 's6', 's7', 's8', 's10', 's11', 's12', 's13',
+  's50', 's51', '401', '402', '403'
+];
+const SFMC_SELECTED_STACK_KEY = 'sfmcSelectedStack';
+
 
 /* ═══════════════════════════════════════════════
    ENTRY POINT
@@ -525,7 +532,7 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
 
     try {
       // ── Resolve base URL and CSRF token ───────────────────────────
-      let csrfToken = await getcsrfToken().catch(() => null);
+      let csrfToken = await getcsrfToken(setStatus).catch(() => null);
       if (!csrfToken) {
         throw new Error(GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_TOKEN);
       }
@@ -719,10 +726,10 @@ async function revertEmail(el) {
     let url  = emailArr[i].url;
     let body = emailArr[i].body;
 
-    let csrfToken = await getcsrfToken().catch(() => null);
+    let csrfToken = await getcsrfToken(log).catch(() => null);
     if (!csrfToken) {
       showToastMessage(GLOBAL.TOAST.ERROR, GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_TOKEN);
-      return;   // Phase 1.2 fix: return instead of `throw error` (error was undefined)
+      return;
     }
 
     let requestOptions = {
@@ -919,7 +926,8 @@ async function getData() {
 }
 
 function getBuids(d) {
-  return Object.keys(d).filter(id => id !== 'token' && id !== 'lastAccessed');
+  const CONFIG_KEYS = new Set(['token', 'lastAccessed', 'sfmcQueryResultsDEKey', SFMC_SELECTED_STACK_KEY]);
+  return Object.keys(d).filter(id => !CONFIG_KEYS.has(id));
 }
 
 async function setCurrentBUID(buid) {
@@ -946,26 +954,76 @@ async function setTitle(buid) {
   $('.ck-buid-title').text('  ' + label + '  ');
 }
 
-async function getcsrfToken() {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get(currentBuid, function(item) {
-      if (!item[currentBuid] || !item[currentBuid].token) {
-        reject(false);
-        return;
+// Walks through known SFMC stacks (previously used stack first) and fetches
+// update-token.json with session cookies to obtain a fresh CSRF token.
+// onStatus(msg): optional progress callback shown to the user.
+// Returns the new token string, or null if all stacks fail.
+async function tryRefreshCsrfToken(onStatus) {
+  onStatus = onStatus || log;
+
+  const stored = await new Promise(r =>
+    chrome.storage.local.get(SFMC_SELECTED_STACK_KEY, d => r(d[SFMC_SELECTED_STACK_KEY] || null))
+  );
+  const stacksToTry = stored
+    ? [stored, ...SFMC_STACK_IDS.filter(s => s !== stored)]
+    : SFMC_STACK_IDS;
+
+  for (const stackId of stacksToTry) {
+    try {
+      onStatus('Connecting to SFMC (stack ' + stackId + ')…');
+      const res = await fetch(
+        'https://mc.' + stackId + '.marketingcloudapps.com/AutomationStudioFuel3/update-token.json',
+        { credentials: 'include' }
+      );
+      if (res.status !== 200) { continue; }
+
+      // Remember the working stack for future calls
+      await new Promise(r => chrome.storage.local.set({ [SFMC_SELECTED_STACK_KEY]: stackId }, r));
+
+      // Extract CSRF token — try response header first, then JSON body
+      let token = res.headers.get('X-CSRF-Token');
+      if (!token) {
+        try {
+          const body = await res.json();
+          token = body['X-CSRF-Token'] || body['csrfToken'] || body['token'] || body['csrf'] || null;
+        } catch (_) {}
       }
-      let t = item[currentBuid].token;
-      if (t['X-CSRF-Token'] && t['createdDate']) {
-        let ageMinutes = (new Date() - new Date(t.createdDate)) / 60000;
-        if (ageMinutes < allowedTokenAge) {
-          resolve(t['X-CSRF-Token']);
-        } else {
-          reject(false);
-        }
-      } else {
-        reject(false);
+      if (!token) { continue; } // 200 but no token in response — try next stack
+
+      // Persist the fresh token under the current BU
+      if (currentBuid) {
+        const buItem = await new Promise(r => chrome.storage.local.get(currentBuid, r));
+        if (!buItem[currentBuid]) { buItem[currentBuid] = {}; }
+        buItem[currentBuid].token = { 'X-CSRF-Token': token, createdDate: Date.now() };
+        await new Promise(r => chrome.storage.local.set({ [currentBuid]: buItem[currentBuid] }, r));
       }
-    });
-  });
+      onStatus('CSRF token refreshed via stack ' + stackId);
+      return token;
+    } catch (_) {
+      // Network error or CORS — try next stack
+    }
+  }
+
+  onStatus('Unable to refresh token. Please open Automation Studio in SFMC.');
+  return null;
+}
+
+async function getcsrfToken(onStatus) {
+  const item = await new Promise(r => chrome.storage.local.get(currentBuid, r));
+  const t = item[currentBuid] && item[currentBuid].token;
+
+  if (t && t['X-CSRF-Token'] && t['createdDate']) {
+    const ageMinutes = (Date.now() - t.createdDate) / 60000;
+    if (ageMinutes < allowedTokenAge) {
+      return t['X-CSRF-Token'];
+    }
+  }
+
+  // Token missing or stale — attempt auto-refresh by probing known stacks
+  const freshToken = await tryRefreshCsrfToken(onStatus);
+  if (freshToken) { return freshToken; }
+
+  throw new Error('no_token');
 }
 
 
@@ -993,28 +1051,30 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Extracts the SFMC instance base URL (e.g. "https://mc123.marketingcloudapps.com")
-// from the most recently stored email URL or automation studio URL in storage.
+// Extracts the SFMC instance base URL (e.g. "https://mc.s50.marketingcloudapps.com")
+// from stored email/automation studio URLs, falling back to the saved stack from
+// tryRefreshCsrfToken if no captured URLs exist yet.
 async function getSfmcInstanceBase() {
   let d = await getData();
-  let buKeys = Object.keys(d).filter(k => k !== 'lastAccessed' && k !== 'token');
+  const CONFIG_KEYS = new Set(['token', 'lastAccessed', 'sfmcQueryResultsDEKey', SFMC_SELECTED_STACK_KEY]);
+  let buKeys = Object.keys(d).filter(k => !CONFIG_KEYS.has(k));
   for (let b of buKeys) {
     let emails = (d[b] && d[b].email) ? d[b].email : [];
     for (let e of emails) {
       if (e.url) {
-        try {
-          return new URL(e.url).origin;
-        } catch (_) {}
+        try { return new URL(e.url).origin; } catch (_) {}
       }
     }
     let as = (d[b] && d[b].automation_studio) ? d[b].automation_studio : [];
     for (let a of as) {
       if (a.url) {
-        try {
-          return new URL(a.url).origin;
-        } catch (_) {}
+        try { return new URL(a.url).origin; } catch (_) {}
       }
     }
+  }
+  // Fallback: use the stack saved by tryRefreshCsrfToken
+  if (d[SFMC_SELECTED_STACK_KEY]) {
+    return 'https://mc.' + d[SFMC_SELECTED_STACK_KEY] + '.marketingcloudapps.com';
   }
   return null;
 }
