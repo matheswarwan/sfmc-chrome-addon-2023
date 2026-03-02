@@ -530,6 +530,15 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
 
     $btn.prop('disabled', true).text('Preparing…');
 
+    // Declared outside try so finally can reference them for cleanup
+    let queryId  = null;
+    let tempDeId = null;
+    const tempDeKey  = generateUUID();
+    const tempDeName = 'sfmc_ext_' + Date.now();
+    let AS_BASE   = null;
+    let DATA_BASE = null;
+    let JSON_HDRS = null;
+
     try {
       // ── Resolve base URL and CSRF token ───────────────────────────
       let csrfToken = await getcsrfToken(setStatus).catch(() => null);
@@ -537,51 +546,74 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
         throw new Error(GLOBAL.EMAIL.TOAST_MESSAGE_INVALID_TOKEN);
       }
 
-      // Derive the instance base URL from the most recently stored email URL,
-      // falling back to the Automation Studio URL captured in query saves.
       let instanceBase = await getSfmcInstanceBase();
       if (!instanceBase) {
         throw new Error('Cannot determine SFMC instance URL. Please save an email or SQL query in SFMC first so the extension can detect your instance.');
       }
 
-      const AS_BASE   = instanceBase + '/AutomationStudioFuel3/fuelapi/automation/v1/queries';
-      const DATA_BASE = instanceBase + '/fuelapi/data/v1/customobjectdata';
-      const JSON_HDRS = {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': csrfToken
-      };
+      AS_BASE   = instanceBase + '/AutomationStudioFuel3/fuelapi/automation/v1/queries';
+      DATA_BASE = instanceBase + '/fuelapi/data/v1/customobjectdata';
+      JSON_HDRS = { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken };
 
-      // ── Resolve target DE customer key ────────────────────────────
-      let deKey = await new Promise(resolve =>
-        chrome.storage.local.get('sfmcQueryResultsDEKey', d => resolve(d.sfmcQueryResultsDEKey || null))
-      );
-      if (!deKey) {
-        $results.html(`
-          <div style="padding:16px;">
-            <p><strong>One-time setup required.</strong></p>
-            <p>To run queries directly via SFMC, you need a pre-created <strong>Data Extension</strong>
-            that the extension will use to store query results. Create a DE in SFMC with at least
-            one Text field, then paste its <strong>Customer Key</strong> below.</p>
-            <div style="display:flex;gap:8px;margin-top:8px;">
-              <input id="ck-de-key-input" class="slds-input" placeholder="DE Customer Key (e.g. abc-123-def)" style="flex:1">
-              <button id="ck-de-key-save" class="slds-button slds-button_brand">Save &amp; Run</button>
-            </div>
-          </div>`);
-        $btn.prop('disabled', false).text('▶ Run');
-        $('#ck-de-key-save').on('click', async function() {
-          let k = $('#ck-de-key-input').val().trim();
-          if (!k) { return; }
-          await new Promise(r => chrome.storage.local.set({ sfmcQueryResultsDEKey: k }, r));
-          showToastMessage(GLOBAL.TOAST.SUCCESS, 'DE key saved. Click ▶ Run again.');
+      // ── Step 0: Build and create a temporary results DE ───────────
+      // Analyse the SQL to determine output column names and types, then
+      // POST to /fuelapi/data/v1/customobjectdata/ with the inferred schema.
+      // If DE creation is unavailable, fall back to a pre-configured DE key.
+      setStatus('Analysing query schema…');
+      $btn.text('Preparing…');
+      let deKey;
+      try {
+        let deFields = await buildTempDEFields(sql, instanceBase, JSON_HDRS);
+        setStatus('Creating temporary results DE…');
+        const createDERes = await fetch(DATA_BASE + '/', {
+          method: 'POST',
+          headers: JSON_HDRS,
+          credentials: 'include',
+          body: JSON.stringify({ name: tempDeName, customerKey: tempDeKey, fields: deFields })
         });
-        return;
+        if (!createDERes.ok) {
+          throw new Error('HTTP ' + createDERes.status + ' — ' + await createDERes.text().catch(() => ''));
+        }
+        const createDEBody = await createDERes.json();
+        // Save the internal ID for cleanup; fall back to customerKey
+        tempDeId = createDEBody.id || createDEBody.objectID || tempDeKey;
+        deKey    = tempDeKey;
+        log('Temp DE created:', tempDeName, 'key:', tempDeKey, 'id:', tempDeId);
+      } catch (deErr) {
+        log('Temp DE creation failed:', deErr.message, '— trying pre-configured DE key');
+        deKey = await new Promise(r =>
+          chrome.storage.local.get('sfmcQueryResultsDEKey', d => r(d.sfmcQueryResultsDEKey || null))
+        );
+        if (!deKey) {
+          $results.html(`
+            <div style="padding:16px;">
+              <p><strong>Automatic DE creation failed.</strong></p>
+              <p>Please create a Data Extension in SFMC manually and paste its
+              <strong>Customer Key</strong> below as a one-time fallback.</p>
+              <div style="display:flex;gap:8px;margin-top:8px;">
+                <input id="ck-de-key-input" class="slds-input" placeholder="DE Customer Key" style="flex:1">
+                <button id="ck-de-key-save" class="slds-button slds-button_brand">Save &amp; Run</button>
+              </div>
+              <p style="color:#888;font-size:11px;margin-top:6px">
+                Error: ${escapeHtml(deErr.message)}</p>
+            </div>`);
+          $btn.prop('disabled', false).text('▶ Run');
+          $('#ck-de-key-save').on('click', async function() {
+            let k = $('#ck-de-key-input').val().trim();
+            if (!k) { return; }
+            await new Promise(r => chrome.storage.local.set({ sfmcQueryResultsDEKey: k }, r));
+            showToastMessage(GLOBAL.TOAST.SUCCESS, 'DE key saved. Click ▶ Run again.');
+          });
+          return; // finally still runs, but queryId/tempDeId are null → no-op cleanup
+        }
+        setStatus('Using pre-configured results DE…');
       }
 
       // ── Step 1: Create a temporary query activity ─────────────────
       setStatus('Creating query activity…');
       $btn.text('Creating…');
-      let activityName = 'sfmc_ext_' + Date.now();
-      let createRes = await fetch(AS_BASE + '/', {
+      const activityName = 'sfmc_ext_' + Date.now();
+      const createQRes = await fetch(AS_BASE + '/', {
         method: 'POST',
         headers: JSON_HDRS,
         credentials: 'include',
@@ -590,30 +622,28 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
           key: generateUUID(),
           description: 'Temporary — created by SFMC Revert Changes extension. Safe to delete.',
           queryText: sql,
-          targetName: deKey,   // SFMC also accepts customer key as targetName
+          targetName: deKey,
           targetKey:  deKey,
           targetUpdateTypeId:   0,
           targetUpdateTypeName: 'Overwrite',
           categoryId: 0
         })
       });
-      if (!createRes.ok) {
-        let errText = await createRes.text().catch(() => '');
-        throw new Error('Failed to create query activity (HTTP ' + createRes.status + '). ' + errText);
+      if (!createQRes.ok) {
+        const errText = await createQRes.text().catch(() => '');
+        throw new Error('Failed to create query activity (HTTP ' + createQRes.status + '). ' + errText);
       }
-      let createData = await createRes.json();
-      let queryId = createData.queryDefinitionId || createData.queryDefinitionID || createData.id;
+      const createQBody = await createQRes.json();
+      queryId = createQBody.queryDefinitionId || createQBody.queryDefinitionID || createQBody.id;
       if (!queryId) {
-        throw new Error('Query activity created but no ID returned: ' + JSON.stringify(createData));
+        throw new Error('Query activity created but no ID in response: ' + JSON.stringify(createQBody));
       }
 
       // ── Step 2: Start execution ────────────────────────────────────
       setStatus('Starting query execution…');
       $btn.text('Starting…');
-      let startRes = await fetch(AS_BASE + '/' + queryId + '/actions/start/', {
-        method: 'POST',
-        headers: JSON_HDRS,
-        credentials: 'include'
+      const startRes = await fetch(AS_BASE + '/' + queryId + '/actions/start/', {
+        method: 'POST', headers: JSON_HDRS, credentials: 'include'
       });
       if (!startRes.ok) {
         throw new Error('Failed to start query (HTTP ' + startRes.status + ')');
@@ -621,8 +651,7 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
 
       // ── Step 3: Poll until complete ────────────────────────────────
       $btn.text('Running…');
-      let polls = 0;
-      let isRunning = true;
+      let polls = 0, isRunning = true;
       while (isRunning) {
         if (polls >= MAX_POLLS) {
           throw new Error('Query timed out after ' + (MAX_POLLS * POLL_MS / 1000) + 's.');
@@ -630,17 +659,11 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
         await new Promise(r => setTimeout(r, POLL_MS));
         polls++;
         setStatus('Running… (' + (polls * POLL_MS / 1000) + 's elapsed)');
-
-        let pollRes = await fetch(AS_BASE + '/' + queryId + '/actions/isrunning/', {
-          method: 'GET',
-          headers: JSON_HDRS,
-          credentials: 'include'
+        const pollRes = await fetch(AS_BASE + '/' + queryId + '/actions/isrunning/', {
+          method: 'GET', headers: JSON_HDRS, credentials: 'include'
         });
-        if (!pollRes.ok) {
-          throw new Error('Status check failed (HTTP ' + pollRes.status + ')');
-        }
-        let pollData = await pollRes.json();
-        // Field name varies across SFMC versions — check all known variants
+        if (!pollRes.ok) { throw new Error('Status check failed (HTTP ' + pollRes.status + ')'); }
+        const pollData = await pollRes.json();
         isRunning = pollData.isRunning ?? pollData.isrunning ?? false;
       }
 
@@ -651,38 +674,33 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
       let page    = 1;
       const PAGE_SIZE = 2500;
       while (true) {
-        let rowsRes = await fetch(
+        const rowsRes = await fetch(
           DATA_BASE + '/key/' + deKey + '/rowset?$pageSize=' + PAGE_SIZE + '&$page=' + page,
           { method: 'GET', headers: JSON_HDRS, credentials: 'include' }
         );
         if (!rowsRes.ok) {
           throw new Error('Failed to fetch results page ' + page + ' (HTTP ' + rowsRes.status + ')');
         }
-        let rowsData = await rowsRes.json();
-        let items = rowsData.items || [];
+        const rowsData = await rowsRes.json();
+        const items = rowsData.items || [];
         allRows = allRows.concat(items);
-        // Stop when we get a partial page (no more data)
         if (items.length < PAGE_SIZE) { break; }
         page++;
       }
-
-      // ── Step 5: Clean up the query activity ───────────────────────
-      fetch(AS_BASE + '/' + queryId, {
-        method: 'DELETE',
-        headers: JSON_HDRS,
-        credentials: 'include'
-      }).catch(() => {}); // fire-and-forget; non-critical
 
       // ── Render results as an SLDS data table ──────────────────────
       if (allRows.length === 0) {
         $results.html('<p style="color:#888">Query returned no rows.</p>');
       } else {
-        // Columns come from the first row's values object keys
-        let cols = Object.keys(allRows[0].values || {});
-        let thead = '<tr>' + cols.map(c => `<th class="slds-text-title_caps" scope="col" style="white-space:nowrap">${escapeHtml(c)}</th>`).join('') + '</tr>';
-        let tbody = allRows.map(row => {
-          let vals = row.values || {};
-          return '<tr>' + cols.map(c => `<td>${escapeHtml(vals[c] == null ? '' : String(vals[c]))}</td>`).join('') + '</tr>';
+        const resCols = Object.keys(allRows[0].values || {});
+        const thead = '<tr>' + resCols.map(c =>
+          `<th class="slds-text-title_caps" scope="col" style="white-space:nowrap">${escapeHtml(c)}</th>`
+        ).join('') + '</tr>';
+        const tbody = allRows.map(row => {
+          const vals = row.values || {};
+          return '<tr>' + resCols.map(c =>
+            `<td>${escapeHtml(vals[c] == null ? '' : String(vals[c]))}</td>`
+          ).join('') + '</tr>';
         }).join('');
         $results.html(`
           <p style="color:#888;margin-bottom:6px">${allRows.length.toLocaleString()} row(s) returned</p>
@@ -698,6 +716,13 @@ function showQueryStudioPreview(menuItemType, timeStamp) {
       $results.html('<p style="color:#c23934"><strong>Error:</strong> ' + escapeHtml(e.message) + '</p>');
     } finally {
       $btn.prop('disabled', false).text('▶ Run');
+      // Fire-and-forget cleanup — always runs, even on error or early return
+      if (queryId  && AS_BASE   && JSON_HDRS) {
+        fetch(AS_BASE   + '/' + queryId,  { method: 'DELETE', headers: JSON_HDRS, credentials: 'include' }).catch(() => {});
+      }
+      if (tempDeId && DATA_BASE && JSON_HDRS) {
+        fetch(DATA_BASE + '/' + tempDeId, { method: 'DELETE', headers: JSON_HDRS, credentials: 'include' }).catch(() => {});
+      }
     }
   });
 }
@@ -1051,30 +1076,40 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Extracts the SFMC instance base URL (e.g. "https://mc.s50.marketingcloudapps.com")
-// from stored email/automation studio URLs, falling back to the saved stack from
-// tryRefreshCsrfToken if no captured URLs exist yet.
+// Returns the SFMC stack ID (e.g. 's50') from any SFMC hostname by matching
+// each dot-separated part against the known SFMC_STACK_IDS list.
+function extractStackFromUrl(url) {
+  try {
+    const parts = new URL(url).hostname.split('.');
+    for (const p of parts) {
+      if (SFMC_STACK_IDS.includes(p)) { return p; }
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Always returns 'https://mc.{stack}.marketingcloudapps.com' — the canonical
+// mc. subdomain — regardless of what subdomain the stored URL used
+// (e.g. content-builder.s50 → mc.s50).
 async function getSfmcInstanceBase() {
-  let d = await getData();
+  const d = await getData();
   const CONFIG_KEYS = new Set(['token', 'lastAccessed', 'sfmcQueryResultsDEKey', SFMC_SELECTED_STACK_KEY]);
-  let buKeys = Object.keys(d).filter(k => !CONFIG_KEYS.has(k));
-  for (let b of buKeys) {
-    let emails = (d[b] && d[b].email) ? d[b].email : [];
-    for (let e of emails) {
-      if (e.url) {
-        try { return new URL(e.url).origin; } catch (_) {}
-      }
-    }
-    let as = (d[b] && d[b].automation_studio) ? d[b].automation_studio : [];
-    for (let a of as) {
-      if (a.url) {
-        try { return new URL(a.url).origin; } catch (_) {}
-      }
-    }
-  }
-  // Fallback: use the stack saved by tryRefreshCsrfToken
+
+  // Fastest path: tryRefreshCsrfToken already confirmed the stack
   if (d[SFMC_SELECTED_STACK_KEY]) {
     return 'https://mc.' + d[SFMC_SELECTED_STACK_KEY] + '.marketingcloudapps.com';
+  }
+
+  // Fall back: scan stored email / automation-studio URLs, extract stack ID
+  for (const b of Object.keys(d).filter(k => !CONFIG_KEYS.has(k))) {
+    const candidates = [
+      ...((d[b] && d[b].email)            ? d[b].email.map(e => e.url)            : []),
+      ...((d[b] && d[b].automation_studio) ? d[b].automation_studio.map(a => a.url) : []),
+    ].filter(Boolean);
+    for (const url of candidates) {
+      const stack = extractStackFromUrl(url);
+      if (stack) { return 'https://mc.' + stack + '.marketingcloudapps.com'; }
+    }
   }
   return null;
 }
@@ -1085,6 +1120,314 @@ function generateUUID() {
     let r = Math.random() * 16 | 0;
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
+}
+
+
+/* ═══════════════════════════════════════════════
+   DATA VIEW SCHEMAS
+   Column types/lengths sourced from dataviews.io (Zuzanna Jarczyńska).
+   Keys are UPPERCASE for case-insensitive lookup.
+   SMTPBounceReason is nvarchar(max) in the data view but DE max is 4000.
+═══════════════════════════════════════════════ */
+const DATA_VIEW_SCHEMAS = {
+  '_SUBSCRIBERS': [
+    { name: 'SubscriberID',       type: 'Number'  },
+    { name: 'SubscriberKey',      type: 'Text',   length: 254  },
+    { name: 'DateUndeliverable',  type: 'Date'    },
+    { name: 'DateJoined',         type: 'Date'    },
+    { name: 'DateUnsubscribed',   type: 'Date'    },
+    { name: 'Domain',             type: 'Text',   length: 254  },
+    { name: 'EmailAddress',       type: 'Text',   length: 254  },
+    { name: 'BounceCount',        type: 'Number'  },
+    { name: 'SubscriberType',     type: 'Text',   length: 100  },
+    { name: 'Status',             type: 'Text',   length: 50   },
+    { name: 'Locale',             type: 'Text',   length: 50   },
+  ],
+  '_SENT': [
+    { name: 'AccountID',          type: 'Number'  },
+    { name: 'OYBAccountID',       type: 'Number'  },
+    { name: 'JobID',              type: 'Number'  },
+    { name: 'ListID',             type: 'Number'  },
+    { name: 'BatchID',            type: 'Number'  },
+    { name: 'SubscriberID',       type: 'Number'  },
+    { name: 'SubscriberKey',      type: 'Text',   length: 254  },
+    { name: 'EventDate',          type: 'Date'    },
+    { name: 'Domain',             type: 'Text',   length: 254  },
+    { name: 'TriggererSendDefinitionObjectID', type: 'Text', length: 254 },
+    { name: 'TriggeredSendCustomerKey',        type: 'Text', length: 254 },
+  ],
+  '_OPEN': [
+    { name: 'AccountID',          type: 'Number'  },
+    { name: 'OYBAccountID',       type: 'Number'  },
+    { name: 'JobID',              type: 'Number'  },
+    { name: 'ListID',             type: 'Number'  },
+    { name: 'BatchID',            type: 'Number'  },
+    { name: 'SubscriberID',       type: 'Number'  },
+    { name: 'SubscriberKey',      type: 'Text',   length: 254  },
+    { name: 'EventDate',          type: 'Date'    },
+    { name: 'IsUnique',           type: 'Boolean' },
+    { name: 'Domain',             type: 'Text',   length: 254  },
+    { name: 'TriggererSendDefinitionObjectID', type: 'Text', length: 254 },
+    { name: 'TriggeredSendCustomerKey',        type: 'Text', length: 254 },
+  ],
+  '_CLICK': [
+    { name: 'AccountID',          type: 'Number'  },
+    { name: 'OYBAccountID',       type: 'Number'  },
+    { name: 'JobID',              type: 'Number'  },
+    { name: 'ListID',             type: 'Number'  },
+    { name: 'BatchID',            type: 'Number'  },
+    { name: 'SubscriberID',       type: 'Number'  },
+    { name: 'SubscriberKey',      type: 'Text',   length: 254  },
+    { name: 'EventDate',          type: 'Date'    },
+    { name: 'Domain',             type: 'Text',   length: 254  },
+    { name: 'URL',                type: 'Text',   length: 4000 },
+    { name: 'LinkName',           type: 'Text',   length: 500  },
+    { name: 'LinkContent',        type: 'Text',   length: 4000 },
+    { name: 'IsUnique',           type: 'Boolean' },
+    { name: 'TriggererSendDefinitionObjectID', type: 'Text', length: 254 },
+    { name: 'TriggeredSendCustomerKey',        type: 'Text', length: 254 },
+  ],
+  '_BOUNCE': [
+    { name: 'AccountID',           type: 'Number'  },
+    { name: 'OYBAccountID',        type: 'Number'  },
+    { name: 'JobID',               type: 'Number'  },
+    { name: 'ListID',              type: 'Number'  },
+    { name: 'BatchID',             type: 'Number'  },
+    { name: 'SubscriberID',        type: 'Number'  },
+    { name: 'SubscriberKey',       type: 'Text',   length: 254  },
+    { name: 'EventDate',           type: 'Date'    },
+    { name: 'IsUnique',            type: 'Boolean' },
+    { name: 'Domain',              type: 'Text',   length: 254  },
+    { name: 'BounceCategoryID',    type: 'Number'  },
+    { name: 'BounceCategory',      type: 'Text',   length: 100  },
+    { name: 'BounceSubcategoryID', type: 'Number'  },
+    { name: 'BounceSubcategory',   type: 'Text',   length: 100  },
+    { name: 'BounceTypeID',        type: 'Number'  },
+    { name: 'BounceType',          type: 'Text',   length: 100  },
+    { name: 'SMTPBounceReason',    type: 'Text',   length: 4000 },
+    { name: 'SMTPMessage',         type: 'Text',   length: 4000 },
+    { name: 'SMTPCode',            type: 'Text',   length: 50   },
+    { name: 'TriggererSendDefinitionObjectID', type: 'Text', length: 254 },
+    { name: 'TriggeredSendCustomerKey',        type: 'Text', length: 254 },
+    { name: 'IsFalseBounce',       type: 'Boolean' },
+  ],
+  '_UNSUBSCRIBE': [
+    { name: 'AccountID',           type: 'Number'  },
+    { name: 'OYBAccountID',        type: 'Number'  },
+    { name: 'JobID',               type: 'Number'  },
+    { name: 'ListID',              type: 'Number'  },
+    { name: 'BatchID',             type: 'Number'  },
+    { name: 'SubscriberID',        type: 'Number'  },
+    { name: 'SubscriberKey',       type: 'Text',   length: 254  },
+    { name: 'EventDate',           type: 'Date'    },
+    { name: 'IsUnique',            type: 'Boolean' },
+    { name: 'Domain',              type: 'Text',   length: 254  },
+    { name: 'TriggererSendDefinitionObjectID', type: 'Text', length: 254 },
+    { name: 'TriggeredSendCustomerKey',        type: 'Text', length: 254 },
+  ],
+  '_COMPLAINT': [
+    { name: 'AccountID',           type: 'Number'  },
+    { name: 'OYBAccountID',        type: 'Number'  },
+    { name: 'JobID',               type: 'Number'  },
+    { name: 'ListID',              type: 'Number'  },
+    { name: 'BatchID',             type: 'Number'  },
+    { name: 'SubscriberID',        type: 'Number'  },
+    { name: 'SubscriberKey',       type: 'Text',   length: 254  },
+    { name: 'EventDate',           type: 'Date'    },
+    { name: 'Domain',              type: 'Text',   length: 254  },
+    { name: 'TriggererSendDefinitionObjectID', type: 'Text', length: 254 },
+    { name: 'TriggeredSendCustomerKey',        type: 'Text', length: 254 },
+  ],
+};
+
+
+/* ═══════════════════════════════════════════════
+   SQL PARSING + TEMP DE SCHEMA HELPERS
+═══════════════════════════════════════════════ */
+
+// Parse FROM/JOIN table references from a SQL string.
+// Returns [{ name, alias }] where alias is the query-level table alias.
+function parseQuerySources(sql) {
+  const cleaned = sql.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const sources = [];
+  // Matches: FROM/JOIN [Ent.][bracketed-or-plain name] [AS] [alias]
+  const re = /\b(?:FROM|JOIN)\s+(?:Ent\.)?(?:\[([^\]]+)\]|([a-zA-Z_#][a-zA-Z0-9_]*))\s*(?:AS\s+)?([a-zA-Z_][a-zA-Z0-9_]*)?/gi;
+  let m;
+  while ((m = re.exec(cleaned)) !== null) {
+    const name  = (m[1] || m[2]).trim();
+    const raw   = m[3] ? m[3].trim() : '';
+    // Reject SQL keyword tokens that the regex incorrectly captured as aliases
+    const alias = (raw && !/^(WHERE|ON|SET|INTO|GROUP|ORDER|HAVING|SELECT|LEFT|RIGHT|INNER|OUTER|CROSS|FULL)$/i.test(raw))
+      ? raw : name;
+    sources.push({ name, alias });
+  }
+  return sources;
+}
+
+// Parse the SELECT column list.
+// Returns [{ outputName, sourceTable, sourceCol, expression }].
+// outputName is the column alias; sourceTable/sourceCol are null for expressions.
+function parseSelectColumns(sql) {
+  const cleaned = sql.replace(/--[^\n]*/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ');
+  const m = cleaned.match(/\bSELECT\b\s+(?:DISTINCT\s+)?(?:TOP\s+\d+\s+)?([\s\S]+?)\s+\bFROM\b/i);
+  if (!m) { return []; }
+  const selectClause = m[1].trim();
+  if (selectClause === '*') {
+    return [{ outputName: '*', sourceTable: null, sourceCol: '*', expression: '*' }];
+  }
+
+  // Split by comma respecting parenthesis depth
+  const rawCols = [];
+  let depth = 0, cur = '';
+  for (const ch of selectClause) {
+    if      (ch === '(' ) { depth++; cur += ch; }
+    else if (ch === ')' ) { depth--; cur += ch; }
+    else if (ch === ',' && depth === 0) { rawCols.push(cur.trim()); cur = ''; }
+    else                  { cur += ch; }
+  }
+  if (cur.trim()) { rawCols.push(cur.trim()); }
+
+  return rawCols.map(col => {
+    // col AS alias
+    const asM = col.match(/^([\s\S]+?)\s+AS\s+\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?\s*$/i);
+    if (asM) {
+      const expr = asM[1].trim();
+      const alias = asM[2].trim();
+      const dotM  = expr.match(/^\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?\.\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?$/);
+      return { outputName: alias, sourceTable: dotM ? dotM[1] : null,
+               sourceCol: dotM ? dotM[2] : null, expression: expr };
+    }
+    // table.col  or  col  (no alias)
+    const dotM = col.match(/^\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?\.\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?$/);
+    if (dotM) {
+      return { outputName: dotM[2], sourceTable: dotM[1], sourceCol: dotM[2], expression: col };
+    }
+    // Bare column name
+    const bareM = col.match(/^\[?([a-zA-Z_][a-zA-Z0-9_]*)\]?$/);
+    if (bareM) {
+      return { outputName: bareM[1], sourceTable: null, sourceCol: bareM[1], expression: col };
+    }
+    // Complex expression with no alias — name will be derived by caller
+    return { outputName: null, sourceTable: null, sourceCol: null, expression: col };
+  });
+}
+
+// Infer the SFMC DE field type for one SELECT column given the loaded schema map.
+// schemas: { ALIAS_UPPER → [{ name, type, length }, ...] }
+function inferFieldType(colDesc, schemas) {
+  const { sourceTable, sourceCol, expression } = colDesc;
+
+  // Aggregate functions → Number
+  if (/^\s*(COUNT|SUM|AVG|MIN|MAX|STDEV|VAR)\s*\(/i.test(expression)) {
+    return { type: 'Number' };
+  }
+  // Date-producing expressions
+  if (/\b(GETDATE|GETUTCDATE|CONVERT\s*\(\s*(DATE|DATETIME|SMALLDATETIME))\b/i.test(expression)) {
+    return { type: 'Date' };
+  }
+
+  // Simple column reference — look up in loaded schemas
+  if (sourceCol) {
+    const schemasToSearch = sourceTable
+      ? [schemas[sourceTable.toUpperCase()]].filter(Boolean)
+      : Object.values(schemas);
+    for (const schema of schemasToSearch) {
+      const fd = schema.find(f => f.name.toUpperCase() === sourceCol.toUpperCase());
+      if (fd) { return { type: fd.type, length: fd.length }; }
+    }
+  }
+  return { type: 'Text', length: 500 };
+}
+
+// Try to fetch a user DE's field definitions from the internal SFMC FuelAPI.
+// Tries two candidate URL patterns; returns [{ name, type, length }] or null.
+async function getDEFieldsByName(deName, instanceBase, headers) {
+  const safe = deName.replace(/'/g, "''");
+  const urls = [
+    instanceBase + '/fuelapi/data/v1/customobjectdata/name/' + encodeURIComponent(deName),
+    instanceBase + '/fuelapi/data/v1/customobjectdata?$filter=name eq \'' + safe + '\'',
+  ];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { method: 'GET', headers, credentials: 'include' });
+      if (!res.ok) { continue; }
+      const body = await res.json();
+      const obj  = Array.isArray(body) ? body[0] : (body.items ? body.items[0] : body);
+      if (obj && Array.isArray(obj.fields)) {
+        return obj.fields.map(f => ({
+          name:   f.name,
+          type:   f.type     || 'Text',
+          length: f.maxLength || f.length || 500,
+        }));
+      }
+    } catch (_) {}
+  }
+  return null;
+}
+
+// Build the field list for a temporary results DE by analysing the SQL query.
+// Looks up data view schemas from DATA_VIEW_SCHEMAS and user DE schemas via API.
+// Falls back to Text(500) for any column it cannot resolve.
+async function buildTempDEFields(sql, instanceBase, headers) {
+  const sources = parseQuerySources(sql);
+  const cols    = parseSelectColumns(sql);
+
+  // Populate schema cache: { ALIAS_UPPER → fieldArray }
+  const schemas = {};
+  for (const src of sources) {
+    const normName = src.name.replace(/^\[|\]$/g, '');
+    const key      = normName.toUpperCase();
+    if (DATA_VIEW_SCHEMAS[key]) {
+      schemas[src.alias.toUpperCase()] = DATA_VIEW_SCHEMAS[key];
+      schemas[key]                     = DATA_VIEW_SCHEMAS[key];
+    } else if (!normName.startsWith('_')) {
+      // User DE — try API lookup (best-effort)
+      const fetched = await getDEFieldsByName(normName, instanceBase, headers).catch(() => null);
+      if (fetched) {
+        schemas[src.alias.toUpperCase()] = fetched;
+        schemas[key]                     = fetched;
+      }
+    }
+  }
+
+  // SELECT * — expand from the first source table's schema
+  if (cols.length === 1 && cols[0].sourceCol === '*') {
+    const first  = sources[0];
+    const schema = first && (schemas[first.alias.toUpperCase()] || schemas[first.name.toUpperCase()]);
+    if (schema) {
+      const fields = schema.map(f => ({
+        name: f.name, type: f.type,
+        length: f.type === 'Text' ? (f.length || 500) : undefined,
+        isPrimaryKey: false, isNullable: true,
+      }));
+      const skIdx = fields.findIndex(f => f.name.toUpperCase() === 'SUBSCRIBERKEY');
+      const pkIdx = skIdx >= 0 ? skIdx : 0;
+      fields[pkIdx].isPrimaryKey = true;
+      fields[pkIdx].isNullable   = false;
+      return fields;
+    }
+    return [{ name: 'Result', type: 'Text', length: 4000, isPrimaryKey: true, isNullable: false }];
+  }
+
+  // Named column list
+  const fields = [];
+  for (const col of cols) {
+    const name = col.outputName || ('col_' + (fields.length + 1));
+    const { type, length } = inferFieldType(col, schemas);
+    const fd = { name, type, isPrimaryKey: false, isNullable: true };
+    if (type === 'Text') { fd.length = length || 500; }
+    fields.push(fd);
+  }
+  if (fields.length === 0) {
+    return [{ name: 'Result', type: 'Text', length: 4000, isPrimaryKey: true, isNullable: false }];
+  }
+
+  // Choose PK: prefer SubscriberKey, otherwise first field
+  const skIdx = fields.findIndex(f => f.name.toUpperCase() === 'SUBSCRIBERKEY');
+  const pkIdx = skIdx >= 0 ? skIdx : 0;
+  fields[pkIdx].isPrimaryKey = true;
+  fields[pkIdx].isNullable   = false;
+  return fields;
 }
 
 
